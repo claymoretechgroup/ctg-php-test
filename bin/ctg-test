@@ -1,0 +1,67 @@
+#!/usr/bin/env php
+<?php
+
+// CLI runner for ctg-php-test — runs test files and passes CLI options as config
+
+require_once __DIR__ . '/../src/CTGTest.php';
+
+// Parse CLI arguments
+$args = $argv;
+array_shift($args); // remove script name
+
+$files = [];
+$config = [];
+
+foreach ($args as $arg) {
+    if (strpos($arg, '--format=') === 0) {
+        $config['output'] = substr($arg, 9);
+    } elseif (strpos($arg, '--output=') === 0) {
+        $config['output'] = substr($arg, 9);
+    } elseif ($arg === '--no-halt') {
+        $config['haltOnFailure'] = false;
+    } elseif ($arg === '--loose') {
+        $config['strict'] = false;
+    } elseif ($arg === '--trace') {
+        $config['trace'] = true;
+    } elseif ($arg === '--help' || $arg === '-h') {
+        echo "Usage: ctg-test [options] [files...]\n";
+        echo "\n";
+        echo "Options:\n";
+        echo "  --format=MODE    Output format: console (default), json, junit, return, return-json\n";
+        echo "  --no-halt        Continue after failures (haltOnFailure=false)\n";
+        echo "  --loose          Use loose equality (==) instead of strict (===)\n";
+        echo "  --trace          Include stack traces in exception output\n";
+        echo "  --help, -h       Show this help message\n";
+        echo "\n";
+        echo "If no files are specified, runs all *Test.php files in the current directory.\n";
+        exit(0);
+    } else {
+        $files[] = $arg;
+    }
+}
+
+// Default: find test files in current directory
+if (empty($files)) {
+    $files = glob('*Test.php') ?: [];
+    if (empty($files)) {
+        $files = glob('tests/*Test.php') ?: [];
+    }
+}
+
+if (empty($files)) {
+    echo "No test files found.\n";
+    exit(1);
+}
+
+// Run each test file
+$exitCode = 0;
+foreach ($files as $file) {
+    if (!file_exists($file)) {
+        echo "File not found: {$file}\n";
+        $exitCode = 1;
+        continue;
+    }
+    require_once $file;
+}
+
+exit($exitCode);
