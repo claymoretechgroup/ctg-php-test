@@ -13,7 +13,7 @@ class CTGTest {
 
     /* Constants */
     public const VALID_OUTPUT_MODES = ['console', 'return', 'return-json', 'json', 'junit'];
-    public const VALID_CONFIG_KEYS = ['output', 'haltOnFailure', 'strict', 'trace', 'formatter'];
+    public const VALID_CONFIG_KEYS = ['output', 'haltOnFailure', 'strict', 'trace', 'formatter', 'debug'];
 
     // Fix #10: Maximum chain recursion depth to prevent infinite nesting
     private const MAX_CHAIN_DEPTH = 64;
@@ -126,6 +126,7 @@ class CTGTest {
             'strict' => true,
             'trace' => false,
             'formatter' => null,
+            'debug' => false,
         ];
 
         foreach ($config as $key => $value) {
@@ -163,6 +164,12 @@ class CTGTest {
         if (!is_bool($merged['trace'])) {
             throw new CTGTestError('INVALID_CONFIG', "trace must be bool", [
                 'key' => 'trace', 'value' => $merged['trace'],
+            ]);
+        }
+
+        if (!is_bool($merged['debug'])) {
+            throw new CTGTestError('INVALID_CONFIG', "debug must be bool", [
+                'key' => 'debug', 'value' => $merged['debug'],
             ]);
         }
 
@@ -372,6 +379,13 @@ class CTGTest {
                 }
             }
 
+            // Capture debug snapshot before step execution
+            $debugSnapshot = null;
+            if ($config['debug']) {
+                $visited = [];
+                $debugSnapshot = $this->_snapshotSubject($subject, $visited);
+            }
+
             // Execute the step
             $result = match ($type) {
                 CTGTestStep::TYPE_STAGE => $this->_executeStage($step, $subject, $config),
@@ -382,6 +396,11 @@ class CTGTest {
                 default => CTGTestResult::stepResult($type, $name, CTGTestResult::STATUS_ERROR, 0,
                     "Unknown step type: {$type}"),
             };
+
+            // Attach debug snapshot to result
+            if ($debugSnapshot !== null) {
+                $result['subject'] = $debugSnapshot;
+            }
 
             $results[] = $result;
 
@@ -727,6 +746,59 @@ class CTGTest {
     // Calculates elapsed milliseconds from a hrtime start, truncated
     private function _elapsed(int $startNano): int {
         return (int) ((hrtime(true) - $startNano) / 1_000_000);
+    }
+
+    // :: MIXED, ARRAY, INT -> MIXED
+    // Creates a debug-safe snapshot of the subject for debug mode
+    // Handles closures, resources, objects with cycles, and deep nesting
+    private function _snapshotSubject(mixed $value, array &$visited = [], int $depth = 0): mixed {
+        if ($depth > 128) {
+            return '[Truncated: max depth]';
+        }
+
+        if ($value === null || is_bool($value) || is_int($value) || is_float($value) || is_string($value)) {
+            return $value;
+        }
+
+        if ($value instanceof \Closure) {
+            return '[Closure]';
+        }
+
+        if (is_resource($value)) {
+            return '[Resource: ' . get_resource_type($value) . ']';
+        }
+
+        if (is_array($value)) {
+            $result = [];
+            foreach ($value as $key => $item) {
+                $result[$key] = $this->_snapshotSubject($item, $visited, $depth + 1);
+            }
+            return $result;
+        }
+
+        if (is_object($value)) {
+            $id = spl_object_id($value);
+            $className = get_class($value);
+            if (isset($visited[$id])) {
+                return '[Circular: ' . $className . ']';
+            }
+            $visited[$id] = true;
+
+            $snapshot = ['__class' => $className];
+            $reflection = new \ReflectionObject($value);
+            foreach ($reflection->getProperties() as $prop) {
+                if (!$prop->isInitialized($value)) {
+                    $snapshot[$prop->getName()] = '[Uninitialized]';
+                    continue;
+                }
+                $snapshot[$prop->getName()] = $this->_snapshotSubject(
+                    $prop->getValue($value), $visited, $depth + 1
+                );
+            }
+            return $snapshot;
+        }
+
+        return '[Unknown: ' . gettype($value) . ']';
     }
 
     // :: STRING, STRING -> ARRAY

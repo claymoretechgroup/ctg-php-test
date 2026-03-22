@@ -92,6 +92,7 @@ $report = $test->start($subject, ['output' => 'return-json']);
 | haltOnFailure | BOOL | `true` | Stop on first fail or error. Recursive at every level. |
 | strict | BOOL | `true` | Use `===` (true) or `==` (false) for comparisons |
 | trace | BOOL | `false` | Include stack traces in exception structures |
+| debug | BOOL | `false` | Capture subject snapshot before each step and attach as `subject` field in result |
 | formatter | ?STRING | `null` | Class-string of a custom formatter implementing `CTGTestFormatterInterface`. Overrides default output mode formatter when set. |
 
 When `formatter` is set, the custom formatter's `format()` method produces the output string. The `output` mode still controls delivery behavior: `return` and `return-json` return the formatted string; all other modes echo it to stdout.
@@ -150,6 +151,31 @@ class CustomTest extends CTGTest {
     }
 }
 ```
+
+## Debug Mode
+
+When `'debug' => true` is set in config, each step's result includes a `subject` field containing a snapshot of the subject's state **before** that step executed. This lets you trace how the subject transforms through the pipeline.
+
+```php
+$r = CTGTest::init('debug example')
+    ->stage('double', fn($x) => $x * 2)
+    ->assert('is 10', fn($x) => $x, 10)
+    ->start(5, ['output' => 'return-json', 'debug' => true]);
+
+// $r['steps'][0]['subject'] === 5    (before doubling)
+// $r['steps'][1]['subject'] === 10   (after doubling, before assert)
+```
+
+The snapshot uses a debug-safe serialization:
+- Scalars, arrays of scalars, and simple objects are captured as-is
+- Closures are represented as `'[Closure]'`
+- Resources are represented as `'[Resource: type]'`
+- Cyclic object references are represented as `'[Circular: ClassName]'`
+- Objects are captured as arrays with a `__class` key and all properties
+
+When `debug` is false (the default), no `subject` field is added to results and there is zero overhead.
+
+Note: Formatter rendering of debug data (e.g. displaying subject snapshots in console or JUnit output) is a possible future consideration. Currently, debug snapshots are only available in the structured report data (`return-json` mode).
 
 ## Report Structure
 

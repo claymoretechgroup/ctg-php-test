@@ -817,6 +817,105 @@ selfTest('FORMATTER_ERROR wraps custom formatter exception', function() {
     return is_string($r) && str_contains($r, 'fmt ok');
 });
 
+// ── Debug Config ─────────────────────────────────────────────
+
+selfTest('debug false (default) omits subject from results', function() {
+    $r = CTGTest::init('no debug')
+        ->stage('double', fn($x) => $x * 2)
+        ->assert('is 10', fn($x) => $x, 10)
+        ->start(5, ['output' => 'return-json']);
+    return !array_key_exists('subject', $r['steps'][0])
+        && !array_key_exists('subject', $r['steps'][1]);
+});
+
+selfTest('debug true adds subject snapshot to stage results', function() {
+    $r = CTGTest::init('debug stage')
+        ->stage('double', fn($x) => $x * 2)
+        ->start(5, ['output' => 'return-json', 'debug' => true]);
+    return array_key_exists('subject', $r['steps'][0])
+        && $r['steps'][0]['subject'] === 5;
+});
+
+selfTest('debug true adds subject snapshot to assert results', function() {
+    $r = CTGTest::init('debug assert')
+        ->stage('double', fn($x) => $x * 2)
+        ->assert('is 10', fn($x) => $x, 10)
+        ->start(5, ['output' => 'return-json', 'debug' => true]);
+    return array_key_exists('subject', $r['steps'][1])
+        && $r['steps'][1]['subject'] === 10;
+});
+
+selfTest('debug true shows subject before transformation (not after)', function() {
+    $r = CTGTest::init('debug before')
+        ->stage('double', fn($x) => $x * 2)
+        ->stage('add 1', fn($x) => $x + 1)
+        ->start(5, ['output' => 'return-json', 'debug' => true]);
+    // First stage sees subject=5 (before doubling to 10)
+    // Second stage sees subject=10 (before adding 1 to get 11)
+    return $r['steps'][0]['subject'] === 5
+        && $r['steps'][1]['subject'] === 10;
+});
+
+selfTest('debug handles closures gracefully', function() {
+    $r = CTGTest::init('debug closure')
+        ->stage('identity', fn($x) => $x)
+        ->start(fn() => 'hello', ['output' => 'return-json', 'debug' => true]);
+    return $r['steps'][0]['subject'] === '[Closure]';
+});
+
+selfTest('debug handles resources gracefully', function() {
+    $tmp = tmpfile();
+    $r = CTGTest::init('debug resource')
+        ->stage('identity', fn($x) => $x)
+        ->start($tmp, ['output' => 'return-json', 'debug' => true]);
+    fclose($tmp);
+    return is_string($r['steps'][0]['subject'])
+        && str_starts_with($r['steps'][0]['subject'], '[Resource: ');
+});
+
+selfTest('debug handles cyclic objects gracefully', function() {
+    $a = new \stdClass(); $b = new \stdClass();
+    $a->ref = $b; $b->ref = $a;
+    $r = CTGTest::init('debug cyclic')
+        ->stage('identity', fn($x) => $x)
+        ->start($a, ['output' => 'return-json', 'debug' => true, 'haltOnFailure' => false]);
+    $snap = $r['steps'][0]['subject'];
+    // $a snapshot should show $b inside, and $b's ref back to $a should be [Circular: stdClass]
+    return is_array($snap)
+        && $snap['__class'] === 'stdClass'
+        && is_array($snap['ref'])
+        && $snap['ref']['ref'] === '[Circular: stdClass]';
+});
+
+selfTest('debug works with chains', function() {
+    $sub = CTGTest::init('sub')
+        ->stage('add 10', fn($x) => $x + 10);
+    $r = CTGTest::init('debug chain')
+        ->stage('set 5', fn($x) => 5)
+        ->chain('inner', $sub)
+        ->start(0, ['output' => 'return-json', 'debug' => true]);
+    // Chain step should capture subject before chain ran (subject = 5 after first stage)
+    return array_key_exists('subject', $r['steps'][1])
+        && $r['steps'][1]['subject'] === 5;
+});
+
+selfTest('debug snapshots arrays of scalars correctly', function() {
+    $r = CTGTest::init('debug array')
+        ->stage('identity', fn($x) => $x)
+        ->start([1, 'hello', true, null], ['output' => 'return-json', 'debug' => true]);
+    return $r['steps'][0]['subject'] === [1, 'hello', true, null];
+});
+
+selfTest('debug snapshots nested arrays with closures', function() {
+    $r = CTGTest::init('debug nested')
+        ->stage('identity', fn($x) => $x)
+        ->start(['a' => 1, 'fn' => fn() => 'x', 'b' => [2, 3]], ['output' => 'return-json', 'debug' => true]);
+    $snap = $r['steps'][0]['subject'];
+    return $snap['a'] === 1
+        && $snap['fn'] === '[Closure]'
+        && $snap['b'] === [2, 3];
+});
+
 // ── Bootstrap Summary ────────────────────────────────────────
 
 echo "\n";
