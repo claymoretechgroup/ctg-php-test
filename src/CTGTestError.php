@@ -1,7 +1,10 @@
 <?php
+declare(strict_types=1);
+
+namespace CTG\Test;
 
 // Framework exception class for ctg-php-test — typed codes, bidirectional lookup, structured data
-class TestError extends \Exception {
+class CTGTestError extends \Exception {
 
     /* Constants */
 
@@ -33,19 +36,19 @@ class TestError extends \Exception {
     public readonly ?array $data;
 
     // CONSTRUCTOR :: STRING|INT, ?STRING, ?ARRAY -> $this
-    // Creates a TestError from type name or code, optional message, optional structured data
+    // Creates a CTGTestError from type name or code, optional message, optional structured data
     // NOTE: Integer code is passed to parent::__construct so getCode() works natively
     public function __construct(string|int $type, ?string $message = null, ?array $data = null) {
         if (is_string($type)) {
             if (!isset(self::TYPES[$type])) {
-                throw new \InvalidArgumentException("Unknown TestError type: {$type}");
+                throw new \InvalidArgumentException("Unknown CTGTestError type: {$type}");
             }
             $this->type = $type;
             $code = self::TYPES[$type];
         } else {
             $flipped = array_flip(self::TYPES);
             if (!isset($flipped[$type])) {
-                throw new \InvalidArgumentException("Unknown TestError code: {$type}");
+                throw new \InvalidArgumentException("Unknown CTGTestError code: {$type}");
             }
             $this->type = $flipped[$type];
             $code = $type;
@@ -68,14 +71,14 @@ class TestError extends \Exception {
     public static function lookup(string|int $value): string|int {
         if (is_string($value)) {
             if (!isset(self::TYPES[$value])) {
-                throw new \InvalidArgumentException("Unknown TestError type: {$value}");
+                throw new \InvalidArgumentException("Unknown CTGTestError type: {$value}");
             }
             return self::TYPES[$value];
         }
 
         $flipped = array_flip(self::TYPES);
         if (!isset($flipped[$value])) {
-            throw new \InvalidArgumentException("Unknown TestError code: {$value}");
+            throw new \InvalidArgumentException("Unknown CTGTestError code: {$value}");
         }
         return $flipped[$value];
     }

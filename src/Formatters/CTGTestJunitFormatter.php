@@ -1,9 +1,12 @@
 <?php
+declare(strict_types=1);
 
-require_once __DIR__ . '/../TestResult.php'; // Result helpers for formatting
+namespace CTG\Test\Formatters;
+
+use CTG\Test\CTGTestResult;
 
 // JUnit XML output formatter — best-effort lossy mapping for CI integration
-class JunitFormatter {
+class CTGTestJunitFormatter {
 
     /**
      *
@@ -58,16 +61,16 @@ class JunitFormatter {
 
         $status = $step['status'];
 
-        if ($status === TestResult::STATUS_FAIL) {
+        if ($status === CTGTestResult::STATUS_FAIL) {
             $xml->startElement('failure');
             $xml->writeAttribute('message', $step['message'] ?? 'assertion failed');
             if (isset($step['actual']) && isset($step['expected'])) {
-                $body = 'Expected: ' . TestResult::formatValue($step['expected']) . "\n"
-                      . 'Actual: ' . TestResult::formatValue($step['actual']);
+                $body = 'Expected: ' . CTGTestResult::formatValue($step['expected']) . "\n"
+                      . 'Actual: ' . CTGTestResult::formatValue($step['actual']);
                 $xml->text($body);
             }
             $xml->endElement();
-        } elseif ($status === TestResult::STATUS_ERROR) {
+        } elseif ($status === CTGTestResult::STATUS_ERROR) {
             $xml->startElement('error');
             $xml->writeAttribute('message', $step['message'] ?? 'error');
             if (isset($step['exception'])) {
@@ -78,10 +81,10 @@ class JunitFormatter {
                 $xml->text($body);
             }
             $xml->endElement();
-        } elseif ($status === TestResult::STATUS_SKIP) {
+        } elseif ($status === CTGTestResult::STATUS_SKIP) {
             $xml->startElement('skipped');
             $xml->endElement();
-        } elseif ($status === TestResult::STATUS_RECOVERED) {
+        } elseif ($status === CTGTestResult::STATUS_RECOVERED) {
             // Least bad option — JUnit has no recovery concept
             $xml->startElement('system-out');
             $lines = [];

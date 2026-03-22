@@ -1,6 +1,6 @@
 {
     "name": "ctg/php-test",
-    "description": "Minimal portable test framework for AI-assisted development",
+    "description": "Composable pipeline-based test framework for PHP",
     "type": "library",
     "license": "MIT",
     "autoload": {

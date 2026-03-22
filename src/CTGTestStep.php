@@ -1,7 +1,10 @@
 <?php
+declare(strict_types=1);
+
+namespace CTG\Test;
 
 // Value object representing a single step definition in a test pipeline
-class TestStep {
+class CTGTestStep {
 
     /* Constants */
     public const TYPE_STAGE = 'stage';

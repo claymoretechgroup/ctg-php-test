@@ -1,7 +1,10 @@
 <?php
+declare(strict_types=1);
+
+namespace CTG\Test\Formatters;
 
 // Human-readable console output formatter for test reports
-class ConsoleFormatter {
+class CTGTestConsoleFormatter {
 
     /**
      *
@@ -35,7 +38,9 @@ class ConsoleFormatter {
             $message = $step['message'] ?? null;
 
             if ($type === 'chain') {
-                $output .= "{$indent}[chain]  {$name}\n";
+                // Fix #12: Show chain pass/fail status
+                $chainStatus = strtoupper($step['status']);
+                $output .= "{$indent}[chain]  {$name} ({$duration}ms) ... {$chainStatus}\n";
                 $output .= self::_formatSteps($step['steps'], $depth + 1);
             } else {
                 $label = "[{$type}]";

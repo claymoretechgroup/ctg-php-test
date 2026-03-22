@@ -1,12 +1,11 @@
 <?php
+declare(strict_types=1);
 
-require_once __DIR__ . '/TestError.php';   // Framework exception class
-require_once __DIR__ . '/TestStep.php';    // Step definition value object
-require_once __DIR__ . '/TestResult.php';  // Result data structure and helpers
+namespace CTG\Test;
 
-require_once __DIR__ . '/Formatters/ConsoleFormatter.php'; // Human-readable output
-require_once __DIR__ . '/Formatters/JsonFormatter.php';    // JSON output
-require_once __DIR__ . '/Formatters/JunitFormatter.php';   // JUnit XML output
+use CTG\Test\Formatters\CTGTestConsoleFormatter;
+use CTG\Test\Formatters\CTGTestJsonFormatter;
+use CTG\Test\Formatters\CTGTestJunitFormatter;
 
 // Composable test pipeline framework — define steps, execute with a subject, get a report
 class CTGTest {
@@ -14,6 +13,9 @@ class CTGTest {
     /* Constants */
     public const VALID_OUTPUT_MODES = ['console', 'return', 'return-json', 'json', 'junit'];
     public const VALID_CONFIG_KEYS = ['output', 'haltOnFailure', 'strict', 'trace'];
+
+    // Fix #10: Maximum chain recursion depth to prevent infinite nesting
+    private const MAX_CHAIN_DEPTH = 64;
 
     /* Instance Properties */
     private string $_name;
@@ -36,31 +38,31 @@ class CTGTest {
     // :: STRING, (MIXED -> MIXED), ?((MIXED -> MIXED)) -> $this
     // Adds a stage step to the pipeline — transforms the subject
     // NOTE: No validation during definition; all validation deferred to start()
-    public function stage(string $name, mixed $fn, mixed $errorHandler = null): self {
-        $this->_steps[] = new TestStep(TestStep::TYPE_STAGE, $name, $fn, null, $errorHandler);
+    public function stage(string $name, mixed $fn, mixed $errorHandler = null): static {
+        $this->_steps[] = new CTGTestStep(CTGTestStep::TYPE_STAGE, $name, $fn, null, $errorHandler);
         return $this;
     }
 
     // :: STRING, (MIXED -> MIXED), MIXED, ?((MIXED -> MIXED)) -> $this
     // Adds an assert step to the pipeline — inspects the subject and compares to expected
     // NOTE: No validation during definition; all validation deferred to start()
-    public function assert(string $name, mixed $fn, mixed $expected, mixed $errorHandler = null): self {
-        $this->_steps[] = new TestStep(TestStep::TYPE_ASSERT, $name, $fn, $expected, $errorHandler);
+    public function assert(string $name, mixed $fn, mixed $expected, mixed $errorHandler = null): static {
+        $this->_steps[] = new CTGTestStep(CTGTestStep::TYPE_ASSERT, $name, $fn, $expected, $errorHandler);
         return $this;
     }
 
     // :: STRING, CTGTest -> $this
     // Adds a chain step — composes another CTGTest's steps as a named group
     // NOTE: No validation during definition; all validation deferred to start()
-    public function chain(string $name, mixed $test): self {
-        $this->_steps[] = new TestStep(TestStep::TYPE_CHAIN, $name, $test);
+    public function chain(string $name, mixed $test): static {
+        $this->_steps[] = new CTGTestStep(CTGTestStep::TYPE_CHAIN, $name, $test);
         return $this;
     }
 
     // :: STRING, ?((MIXED -> BOOL)) -> $this
     // Marks a step for conditional skipping by name
     // NOTE: Pure metadata — not a step. Validated and evaluated lazily at start() time.
-    public function skip(string $name, mixed $predicate = null): self {
+    public function skip(string $name, mixed $predicate = null): static {
         $this->_skips[] = ['name' => trim($name), 'predicate' => $predicate];
         return $this;
     }
@@ -74,7 +76,7 @@ class CTGTest {
         $this->_validate($config);
 
         $steps = $this->_execute($subject, $config);
-        $report = TestResult::report($this->_name, $steps);
+        $report = CTGTestResult::report($this->_name, $steps);
 
         return $this->_deliver($report, $config);
     }
@@ -115,7 +117,7 @@ class CTGTest {
 
         foreach ($config as $key => $value) {
             if (!in_array($key, self::VALID_CONFIG_KEYS, true)) {
-                throw new TestError('INVALID_CONFIG', "Unrecognized config key: {$key}", [
+                throw new CTGTestError('INVALID_CONFIG', "Unrecognized config key: {$key}", [
                     'key' => $key,
                     'value' => $value,
                     'valid_keys' => self::VALID_CONFIG_KEYS,
@@ -126,7 +128,7 @@ class CTGTest {
         $merged = array_merge($defaults, $config);
 
         if (!in_array($merged['output'], self::VALID_OUTPUT_MODES, true)) {
-            throw new TestError('INVALID_CONFIG', "Invalid output mode: {$merged['output']}", [
+            throw new CTGTestError('INVALID_CONFIG', "Invalid output mode: {$merged['output']}", [
                 'key' => 'output',
                 'value' => $merged['output'],
                 'valid_values' => self::VALID_OUTPUT_MODES,
@@ -134,19 +136,19 @@ class CTGTest {
         }
 
         if (!is_bool($merged['haltOnFailure'])) {
-            throw new TestError('INVALID_CONFIG', "haltOnFailure must be bool", [
+            throw new CTGTestError('INVALID_CONFIG', "haltOnFailure must be bool", [
                 'key' => 'haltOnFailure', 'value' => $merged['haltOnFailure'],
             ]);
         }
 
         if (!is_bool($merged['strict'])) {
-            throw new TestError('INVALID_CONFIG', "strict must be bool", [
+            throw new CTGTestError('INVALID_CONFIG', "strict must be bool", [
                 'key' => 'strict', 'value' => $merged['strict'],
             ]);
         }
 
         if (!is_bool($merged['trace'])) {
-            throw new TestError('INVALID_CONFIG', "trace must be bool", [
+            throw new CTGTestError('INVALID_CONFIG', "trace must be bool", [
                 'key' => 'trace', 'value' => $merged['trace'],
             ]);
         }
@@ -159,31 +161,32 @@ class CTGTest {
     // NOTE: All definition-time errors (1xxx) are caught here
     private function _validate(array $config): void {
         if (empty($this->_name)) {
-            throw new TestError('INVALID_STEP', "Test name is empty after trimming", [
+            throw new CTGTestError('INVALID_STEP', "Test name is empty after trimming", [
                 'name' => $this->_name,
             ]);
         }
 
-        $this->_validateSteps($this->_steps);
+        $this->_validateSteps($this->_steps, 0);
         $this->_validateSkips($this->_skips, $this->_steps);
     }
 
-    // :: ARRAY -> VOID
+    // :: ARRAY, INT -> VOID
     // Validates step definitions: callables, names, uniqueness
-    private function _validateSteps(array $steps): void {
+    // Fix #10: depth parameter tracks chain nesting to enforce MAX_CHAIN_DEPTH
+    private function _validateSteps(array $steps, int $chainDepth): void {
         $names = [];
 
         foreach ($steps as $index => $step) {
             $name = $step->getName();
 
             if (empty($name)) {
-                throw new TestError('INVALID_STEP', "Step name is empty after trimming", [
+                throw new CTGTestError('INVALID_STEP', "Step name is empty after trimming", [
                     'step_index' => $index,
                 ]);
             }
 
             if (isset($names[$name])) {
-                throw new TestError('INVALID_STEP', "Duplicate step name: '{$name}'", [
+                throw new CTGTestError('INVALID_STEP', "Duplicate step name: '{$name}'", [
                     'name' => $name,
                     'first_index' => $names[$name],
                     'duplicate_index' => $index,
@@ -194,33 +197,42 @@ class CTGTest {
             $type = $step->getType();
             $fn = $step->getFn();
 
-            if ($type === TestStep::TYPE_CHAIN) {
+            if ($type === CTGTestStep::TYPE_CHAIN) {
                 if (!($fn instanceof CTGTest)) {
-                    throw new TestError('INVALID_CHAIN', "Chain '{$name}' requires a CTGTest instance", [
+                    throw new CTGTestError('INVALID_CHAIN', "Chain '{$name}' requires a CTGTest instance", [
                         'chain_name' => $name, 'got' => gettype($fn),
                     ]);
                 }
-                $this->_validateSteps($fn->getSteps());
+                // Fix #10: Enforce chain recursion depth limit
+                if ($chainDepth >= self::MAX_CHAIN_DEPTH) {
+                    throw new CTGTestError('INVALID_CHAIN', "Chain depth exceeds maximum of " . self::MAX_CHAIN_DEPTH, [
+                        'chain_name' => $name,
+                        'depth' => $chainDepth,
+                        'max_depth' => self::MAX_CHAIN_DEPTH,
+                    ]);
+                }
+                $this->_validateSteps($fn->getSteps(), $chainDepth + 1);
                 $this->_validateSkips($fn->getSkips(), $fn->getSteps());
             } else {
                 if (!is_callable($fn)) {
-                    throw new TestError('INVALID_STEP', "Step '{$name}' function is not callable", [
+                    throw new CTGTestError('INVALID_STEP', "Step '{$name}' function is not callable", [
                         'step_index' => $index, 'name' => $name, 'got' => gettype($fn),
                     ]);
                 }
 
                 $errorHandler = $step->getErrorHandler();
                 if ($errorHandler !== null && !is_callable($errorHandler)) {
-                    throw new TestError('INVALID_STEP', "Step '{$name}' error handler is not callable", [
+                    throw new CTGTestError('INVALID_STEP', "Step '{$name}' error handler is not callable", [
                         'step_index' => $index, 'name' => $name, 'got' => gettype($errorHandler),
                     ]);
                 }
             }
 
-            if ($type === TestStep::TYPE_ASSERT) {
+            if ($type === CTGTestStep::TYPE_ASSERT) {
                 $expected = $step->getExpected();
-                if ($expected instanceof \Closure) {
-                    throw new TestError('INVALID_EXPECTED', "Assert '{$name}' expected value is callable — predicates go in the fn argument", [
+                // Fix #6: Use is_callable() instead of instanceof \Closure to catch all callables
+                if (is_callable($expected)) {
+                    throw new CTGTestError('INVALID_EXPECTED', "Assert '{$name}' expected value is callable — predicates go in the fn argument", [
                         'step_name' => $name,
                     ]);
                 }
@@ -241,23 +253,23 @@ class CTGTest {
             $name = $skip['name'];
 
             if (empty($name)) {
-                throw new TestError('INVALID_SKIP', "Skip name is empty after trimming", ['skip_name' => $name]);
+                throw new CTGTestError('INVALID_SKIP', "Skip name is empty after trimming", ['skip_name' => $name]);
             }
 
             if (!isset($stepNames[$name])) {
-                throw new TestError('INVALID_SKIP', "Skip target '{$name}' does not match any step", [
+                throw new CTGTestError('INVALID_SKIP', "Skip target '{$name}' does not match any step", [
                     'skip_name' => $name, 'available_steps' => array_keys($stepNames),
                 ]);
             }
 
             if (isset($seenSkips[$name])) {
-                throw new TestError('INVALID_SKIP', "Duplicate skip directive for '{$name}'", ['skip_name' => $name]);
+                throw new CTGTestError('INVALID_SKIP', "Duplicate skip directive for '{$name}'", ['skip_name' => $name]);
             }
             $seenSkips[$name] = true;
 
             $predicate = $skip['predicate'];
             if ($predicate !== null && !is_callable($predicate)) {
-                throw new TestError('INVALID_SKIP', "Skip predicate for '{$name}' is not callable", [
+                throw new CTGTestError('INVALID_SKIP', "Skip predicate for '{$name}' is not callable", [
                     'skip_name' => $name, 'got' => gettype($predicate),
                 ]);
             }
@@ -305,10 +317,10 @@ class CTGTest {
                         continue;
                     }
                 } catch (\Throwable $e) {
-                    $result = TestResult::stepResult(
-                        $type, $name, TestResult::STATUS_ERROR, 0,
+                    $result = CTGTestResult::stepResult(
+                        $type, $name, CTGTestResult::STATUS_ERROR, 0,
                         get_class($e) . ': ' . $e->getMessage(),
-                        TestResult::formatException($e, $config['trace'])
+                        CTGTestResult::formatException($e, $config['trace'])
                     );
                     $results[] = $result;
                     if ($config['haltOnFailure']) { break; }
@@ -318,15 +330,18 @@ class CTGTest {
 
             // Execute the step
             $result = match ($type) {
-                TestStep::TYPE_STAGE => $this->_executeStage($step, $subject, $config),
-                TestStep::TYPE_ASSERT => $this->_executeAssert($step, $subject, $config),
-                TestStep::TYPE_CHAIN => $this->_executeChain($step, $subject, $config),
+                CTGTestStep::TYPE_STAGE => $this->_executeStage($step, $subject, $config),
+                CTGTestStep::TYPE_ASSERT => $this->_executeAssert($step, $subject, $config),
+                CTGTestStep::TYPE_CHAIN => $this->_executeChain($step, $subject, $config),
+                // Fix #11: Default arm for unknown step types
+                default => CTGTestResult::stepResult($type, $name, CTGTestResult::STATUS_ERROR, 0,
+                    "Unknown step type: {$type}"),
             };
 
             $results[] = $result;
 
             // Check haltOnFailure
-            if ($config['haltOnFailure'] && ($result['status'] === TestResult::STATUS_FAIL || $result['status'] === TestResult::STATUS_ERROR)) {
+            if ($config['haltOnFailure'] && ($result['status'] === CTGTestResult::STATUS_FAIL || $result['status'] === CTGTestResult::STATUS_ERROR)) {
                 break;
             }
         }
@@ -334,9 +349,9 @@ class CTGTest {
         return $results;
     }
 
-    // :: TestStep, MIXED, ARRAY -> ARRAY
+    // :: CTGTestStep, MIXED, ARRAY -> ARRAY
     // Executes a stage step: call fn with subject, handle errors, return result
-    private function _executeStage(TestStep $step, mixed &$subject, array $config): array {
+    private function _executeStage(CTGTestStep $step, mixed &$subject, array $config): array {
         $name = $step->getName();
         $fn = $step->getFn();
         $errorHandler = $step->getErrorHandler();
@@ -346,36 +361,36 @@ class CTGTest {
             $newSubject = $fn($subject);
             $durationMs = $this->_elapsed($startTime);
             $subject = $newSubject;
-            return TestResult::stepResult('stage', $name, TestResult::STATUS_PASS, $durationMs);
+            return CTGTestResult::stepResult('stage', $name, CTGTestResult::STATUS_PASS, $durationMs);
         } catch (\Throwable $e) {
             if ($errorHandler !== null) {
                 try {
                     $recoveredSubject = $errorHandler($e);
                     $durationMs = $this->_elapsed($startTime);
                     $subject = $recoveredSubject;
-                    return TestResult::stepResult('stage', $name, TestResult::STATUS_RECOVERED, $durationMs,
-                        'error handler invoked, produced ' . TestResult::formatValue($recoveredSubject),
-                        TestResult::formatException($e, $config['trace'])
+                    return CTGTestResult::stepResult('stage', $name, CTGTestResult::STATUS_RECOVERED, $durationMs,
+                        'error handler invoked, produced ' . CTGTestResult::formatValue($recoveredSubject),
+                        CTGTestResult::formatException($e, $config['trace'])
                     );
                 } catch (\Throwable $handlerError) {
                     $durationMs = $this->_elapsed($startTime);
-                    return TestResult::stepResult('stage', $name, TestResult::STATUS_ERROR, $durationMs,
+                    return CTGTestResult::stepResult('stage', $name, CTGTestResult::STATUS_ERROR, $durationMs,
                         get_class($handlerError) . ': ' . $handlerError->getMessage(),
-                        TestResult::formatException($handlerError, $config['trace'], TestResult::formatException($e, $config['trace']))
+                        CTGTestResult::formatException($handlerError, $config['trace'], CTGTestResult::formatException($e, $config['trace']))
                     );
                 }
             }
             $durationMs = $this->_elapsed($startTime);
-            return TestResult::stepResult('stage', $name, TestResult::STATUS_ERROR, $durationMs,
+            return CTGTestResult::stepResult('stage', $name, CTGTestResult::STATUS_ERROR, $durationMs,
                 get_class($e) . ': ' . $e->getMessage(),
-                TestResult::formatException($e, $config['trace'])
+                CTGTestResult::formatException($e, $config['trace'])
             );
         }
     }
 
-    // :: TestStep, MIXED, ARRAY -> ARRAY
+    // :: CTGTestStep, MIXED, ARRAY -> ARRAY
     // Executes an assert step: call fn, compare result to expected, handle errors
-    private function _executeAssert(TestStep $step, mixed $subject, array $config): array {
+    private function _executeAssert(CTGTestStep $step, mixed $subject, array $config): array {
         $name = $step->getName();
         $fn = $step->getFn();
         $expected = $step->getExpected();
@@ -388,44 +403,44 @@ class CTGTest {
 
             $typeError = $this->_checkComparable($actual, $expected);
             if ($typeError !== null) {
-                return TestResult::assertResult($name, TestResult::STATUS_ERROR, $durationMs, $actual, $expected, $typeError);
+                return CTGTestResult::assertResult($name, CTGTestResult::STATUS_ERROR, $durationMs, $actual, $expected, $typeError);
             }
 
             if ($this->_compareExpected($actual, $expected, $config['strict'])) {
-                return TestResult::assertResult($name, TestResult::STATUS_PASS, $durationMs, $actual, $expected);
+                return CTGTestResult::assertResult($name, CTGTestResult::STATUS_PASS, $durationMs, $actual, $expected);
             }
 
-            return TestResult::assertResult($name, TestResult::STATUS_FAIL, $durationMs, $actual, $expected,
-                'expected ' . TestResult::formatValue($expected) . ' but got ' . TestResult::formatValue($actual)
+            return CTGTestResult::assertResult($name, CTGTestResult::STATUS_FAIL, $durationMs, $actual, $expected,
+                'expected ' . CTGTestResult::formatValue($expected) . ' but got ' . CTGTestResult::formatValue($actual)
             );
         } catch (\Throwable $e) {
             if ($errorHandler !== null) {
                 try {
                     $recoveredValue = $errorHandler($e);
                     $durationMs = $this->_elapsed($startTime);
-                    return TestResult::assertResult($name, TestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $expected,
-                        'error handler invoked, produced ' . TestResult::formatValue($recoveredValue),
-                        TestResult::formatException($e, $config['trace'])
+                    return CTGTestResult::assertResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $expected,
+                        'error handler invoked, produced ' . CTGTestResult::formatValue($recoveredValue),
+                        CTGTestResult::formatException($e, $config['trace'])
                     );
                 } catch (\Throwable $handlerError) {
                     $durationMs = $this->_elapsed($startTime);
-                    return TestResult::assertResult($name, TestResult::STATUS_ERROR, $durationMs, null, $expected,
+                    return CTGTestResult::assertResult($name, CTGTestResult::STATUS_ERROR, $durationMs, null, $expected,
                         get_class($handlerError) . ': ' . $handlerError->getMessage(),
-                        TestResult::formatException($handlerError, $config['trace'], TestResult::formatException($e, $config['trace']))
+                        CTGTestResult::formatException($handlerError, $config['trace'], CTGTestResult::formatException($e, $config['trace']))
                     );
                 }
             }
             $durationMs = $this->_elapsed($startTime);
-            return TestResult::assertResult($name, TestResult::STATUS_ERROR, $durationMs, null, $expected,
+            return CTGTestResult::assertResult($name, CTGTestResult::STATUS_ERROR, $durationMs, null, $expected,
                 get_class($e) . ': ' . $e->getMessage(),
-                TestResult::formatException($e, $config['trace'])
+                CTGTestResult::formatException($e, $config['trace'])
             );
         }
     }
 
-    // :: TestStep, MIXED, ARRAY -> ARRAY
+    // :: CTGTestStep, MIXED, ARRAY -> ARRAY
     // Executes a chain step: run the chained CTGTest's steps inline
-    private function _executeChain(TestStep $step, mixed &$subject, array $config): array {
+    private function _executeChain(CTGTestStep $step, mixed &$subject, array $config): array {
         $name = $step->getName();
         $chainedTest = $step->getFn();
         $startTime = hrtime(true);
@@ -433,11 +448,11 @@ class CTGTest {
         $childSteps = $this->_executeSteps($chainedTest->getSteps(), $chainedTest->getSkips(), $subject, $config);
 
         $durationMs = $this->_elapsed($startTime);
-        $counts = TestResult::countSteps($childSteps);
-        $status = TestResult::aggregateStatus($childSteps);
-        $message = TestResult::chainMessage($counts['failed'], $counts['errored'], $counts['total']);
+        $counts = CTGTestResult::countSteps($childSteps);
+        $status = CTGTestResult::aggregateStatus($childSteps);
+        $message = CTGTestResult::chainMessage($counts['failed'], $counts['errored'], $counts['total']);
 
-        return TestResult::chainResult($name, $status, $durationMs, $message, null, $childSteps, $counts);
+        return CTGTestResult::chainResult($name, $status, $durationMs, $message, null, $childSteps, $counts);
     }
 
     /**
@@ -455,8 +470,13 @@ class CTGTest {
 
     // :: MIXED, MIXED, BOOL -> BOOL
     // Compares actual against expected, handling candidate-set arrays
+    // Fix #5: Empty array expected [] now passes only if actual is also []
     private function _compareExpected(mixed $actual, mixed $expected, bool $strict): bool {
         if (is_array($expected)) {
+            // Fix #5: Empty array means "expect empty array", not "no candidates"
+            if (empty($expected)) {
+                return $this->compare($actual, $expected, $strict);
+            }
             foreach ($expected as $candidate) {
                 if ($this->compare($actual, $candidate, $strict)) {
                     return true;
@@ -471,26 +491,36 @@ class CTGTest {
     // Checks if either side contains uncomparable types (resources, closures, cycles)
     private function _checkComparable(mixed $actual, mixed $expected): ?string {
         $visited = [];
-        $error = $this->_checkValueComparable($actual, $visited);
+        $error = $this->_checkValueComparable($actual, $visited, 0);
         if ($error !== null) { return "actual value contains {$error}"; }
 
         $visited = [];
-        $error = $this->_checkValueComparable($expected, $visited);
+        $error = $this->_checkValueComparable($expected, $visited, 0);
         if ($error !== null) { return "expected value contains {$error}"; }
 
         return null;
     }
 
-    // :: MIXED, ARRAY -> ?STRING
+    // :: MIXED, ARRAY, INT -> ?STRING
     // Recursively checks a value for resources, closures, and cycles
-    private function _checkValueComparable(mixed $value, array &$visited): ?string {
+    // Fix #4: Added array cycle detection using depth parameter passed through recursion
+    private function _checkValueComparable(mixed $value, array &$visited, int $arrayDepth): ?string {
         if (is_resource($value)) { return 'a resource'; }
         if ($value instanceof \Closure) { return 'a closure'; }
 
         if (is_array($value)) {
+            // Fix #4: Track array nesting depth as a pragmatic proxy for cycle detection
+            // since PHP arrays can only form cycles via references, and deep nesting
+            // is the observable symptom
+            $arrayDepth++;
+            if ($arrayDepth > 128) {
+                return 'a deeply nested or cyclic array';
+            }
             foreach ($value as $item) {
-                $error = $this->_checkValueComparable($item, $visited);
-                if ($error !== null) { return $error; }
+                $error = $this->_checkValueComparable($item, $visited, $arrayDepth);
+                if ($error !== null) {
+                    return $error;
+                }
             }
             return null;
         }
@@ -502,7 +532,7 @@ class CTGTest {
 
             $reflection = new \ReflectionObject($value);
             foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $prop) {
-                $error = $this->_checkValueComparable($prop->getValue($value), $visited);
+                $error = $this->_checkValueComparable($prop->getValue($value), $visited, $arrayDepth);
                 if ($error !== null) { return $error; }
             }
             return null;
@@ -525,15 +555,20 @@ class CTGTest {
         try {
             return match ($output) {
                 'console' => $this->_deliverConsole($report),
-                'return' => ConsoleFormatter::format($report),
+                'return' => CTGTestConsoleFormatter::format($report),
                 'return-json' => $report,
+                // Fix #9: Use CTGTestJsonFormatter instead of inline json_encode
                 'json' => $this->_deliverJson($report),
                 'junit' => $this->_deliverJunit($report, $config),
+                // Fix #11: Default arm for unknown output modes (should not reach here due to validation)
+                default => throw new CTGTestError('INVALID_CONFIG', "Unknown output mode: {$output}"),
             };
+        } catch (CTGTestError $e) {
+            throw $e;
         } catch (\Throwable $e) {
-            throw new TestError('FORMATTER_ERROR', "Formatter '{$output}' threw an exception", [
+            throw new CTGTestError('FORMATTER_ERROR', "Formatter '{$output}' threw an exception", [
                 'formatter' => $output,
-                'exception' => TestResult::formatException($e, $config['trace']),
+                'exception' => CTGTestResult::formatException($e, $config['trace']),
                 'report' => $report,
             ]);
         }
@@ -541,19 +576,20 @@ class CTGTest {
 
     // :: ARRAY -> NULL
     private function _deliverConsole(array $report): null {
-        echo ConsoleFormatter::format($report);
+        echo CTGTestConsoleFormatter::format($report);
         return null;
     }
 
     // :: ARRAY -> NULL
+    // Fix #9: Now uses CTGTestJsonFormatter::format() instead of inline json_encode
     private function _deliverJson(array $report): null {
-        echo json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        echo CTGTestJsonFormatter::format($report);
         return null;
     }
 
     // :: ARRAY, ARRAY -> NULL
     private function _deliverJunit(array $report, array $config): null {
-        echo JunitFormatter::format($report, $config['trace']);
+        echo CTGTestJunitFormatter::format($report, $config['trace']);
         return null;
     }
 
@@ -573,11 +609,11 @@ class CTGTest {
     // Creates a skip result for a step
     private function _makeSkipResult(string $type, string $name): array {
         return match ($type) {
-            TestStep::TYPE_ASSERT => TestResult::assertResult($name, TestResult::STATUS_SKIP, 0, null, null),
-            TestStep::TYPE_CHAIN => TestResult::chainResult($name, TestResult::STATUS_SKIP, 0, null, null, [], [
+            CTGTestStep::TYPE_ASSERT => CTGTestResult::assertResult($name, CTGTestResult::STATUS_SKIP, 0, null, null),
+            CTGTestStep::TYPE_CHAIN => CTGTestResult::chainResult($name, CTGTestResult::STATUS_SKIP, 0, null, null, [], [
                 'passed' => 0, 'failed' => 0, 'skipped' => 0, 'recovered' => 0, 'errored' => 0, 'total' => 0,
             ]),
-            default => TestResult::stepResult($type, $name, TestResult::STATUS_SKIP, 0),
+            default => CTGTestResult::stepResult($type, $name, CTGTestResult::STATUS_SKIP, 0),
         };
     }
 
@@ -587,10 +623,11 @@ class CTGTest {
      *
      */
 
-    // Static Factory Method :: STRING -> CTGTest
+    // Static Factory Method :: STRING -> static
     // Creates a new test definition with the given name
     // NOTE: Name is stored raw; validation deferred to start()
-    public static function init(string $name): self {
-        return new self($name);
+    // Fix #3: Returns static and uses new static() for subclass support
+    public static function init(string $name): static {
+        return new static($name);
     }
 }

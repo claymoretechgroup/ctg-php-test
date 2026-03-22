@@ -1,7 +1,10 @@
 <?php
+declare(strict_types=1);
+
+namespace CTG\Test;
 
 // Structured result data for step outcomes and report aggregation
-class TestResult {
+class CTGTestResult {
 
     /* Constants */
     public const STATUS_PASS = 'pass';
@@ -128,7 +131,7 @@ class TestResult {
         $worst = self::STATUS_SKIP;
         foreach ($steps as $step) {
             $stepStatus = $step['status'];
-            if (self::SEVERITY[$stepStatus] > self::SEVERITY[$worst]) {
+            if ((self::SEVERITY[$stepStatus] ?? 0) > (self::SEVERITY[$worst] ?? 0)) {
                 $worst = $stepStatus;
             }
         }
@@ -154,6 +157,7 @@ class TestResult {
                 self::STATUS_SKIP => $counts['skipped']++,
                 self::STATUS_RECOVERED => $counts['recovered']++,
                 self::STATUS_ERROR => $counts['errored']++,
+                default => null,
             };
         }
 
