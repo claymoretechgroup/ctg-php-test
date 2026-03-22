@@ -226,6 +226,31 @@ $test->start('b');  // $count is now 2 — fails! expected 1 but got 2
 
 For reusable definitions, keep closures pure — depend only on the subject argument, not on captured mutable state. If shared state is necessary, reset it before each `start()` call or use a fresh definition per subject.
 
+## Mocking with Recording Proxies
+
+The pipeline model supports mocking through regular stages — no special mock API is needed. A stage replaces part of the subject with a recording proxy, and subsequent asserts inspect its call log like any other value:
+
+```php
+CTGTest::init('service calls dependency')
+    ->subject($service)
+    ->stage('inject proxy', function($service) {
+        $proxy = new RecordingProxy($service->getDependency());
+        $service->setDependency($proxy);
+        return $service;
+    })
+    ->stage('exercise', fn($service) => $service->doWork())
+    ->assert('called twice', fn($service) => count(
+        $service->getDependency()->getCalls()
+    ), 2)
+    ->assert('correct args', fn($service) =>
+        $service->getDependency()->getCalls()[0]['args'],
+        ['expected', 'arguments']
+    )
+    ->start();
+```
+
+The framework doesn't need to know anything about mocking internals — the recording proxy is user-provided code, and asserts check its call log like any other value. A `RecordingProxy` utility class and a dedicated `mock` convenience method are under consideration for a future release.
+
 ## Class Documentation
 
 * [CTGTest](docs/CTGTest/)
