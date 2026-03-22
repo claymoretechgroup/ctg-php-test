@@ -6,7 +6,7 @@ namespace CTG\Test\Formatters;
 use CTG\Test\CTGTestResult;
 
 // JUnit XML output formatter — best-effort lossy mapping for CI integration
-class CTGTestJunitFormatter {
+class CTGTestJunitFormatter implements CTGTestFormatterInterface {
 
     /**
      *

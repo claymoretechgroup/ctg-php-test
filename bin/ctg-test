@@ -6,6 +6,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use CTG\Test\CTGTest;
 use CTG\Test\CTGTestError;
 
 // Parse CLI arguments
@@ -56,16 +57,16 @@ if (empty($files)) {
     exit(1);
 }
 
-// Make config available to test files via a global.
+// Make config available to test files via CTGTest::getCliConfig().
 // Test files can read this config and pass it to CTGTest::start():
-//   $config = $GLOBALS['CTG_TEST_CONFIG'] ?? [];
+//   $config = CTGTest::getCliConfig();
 //   CTGTest::init('my test')->...->start($subject, $config);
 //
 // This allows CLI flags (--format, --no-halt, --loose, --trace) to propagate
 // into test pipelines without coupling the test file to CLI argument parsing.
 // Test files may merge their own overrides:
-//   $config = array_merge($GLOBALS['CTG_TEST_CONFIG'] ?? [], ['haltOnFailure' => false]);
-$GLOBALS['CTG_TEST_CONFIG'] = $config;
+//   $config = array_merge(CTGTest::getCliConfig(), ['haltOnFailure' => false]);
+CTGTest::setCliConfig($config);
 
 // Track whether any test file signals failure
 $hasFailure = false;

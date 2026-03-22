@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace CTG\Test\Formatters;
 
 // JSON output formatter for test reports
-class CTGTestJsonFormatter {
+class CTGTestJsonFormatter implements CTGTestFormatterInterface {
 
     /**
      *

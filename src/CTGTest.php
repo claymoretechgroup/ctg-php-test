@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace CTG\Test;
 
 use CTG\Test\Formatters\CTGTestConsoleFormatter;
+use CTG\Test\Formatters\CTGTestFormatterInterface;
 use CTG\Test\Formatters\CTGTestJsonFormatter;
 use CTG\Test\Formatters\CTGTestJunitFormatter;
 
@@ -12,10 +13,13 @@ class CTGTest {
 
     /* Constants */
     public const VALID_OUTPUT_MODES = ['console', 'return', 'return-json', 'json', 'junit'];
-    public const VALID_CONFIG_KEYS = ['output', 'haltOnFailure', 'strict', 'trace'];
+    public const VALID_CONFIG_KEYS = ['output', 'haltOnFailure', 'strict', 'trace', 'formatter'];
 
     // Fix #10: Maximum chain recursion depth to prevent infinite nesting
     private const MAX_CHAIN_DEPTH = 64;
+
+    /* Static Properties */
+    private static array $_cliConfig = [];
 
     /* Instance Properties */
     private string $_name;
@@ -121,6 +125,7 @@ class CTGTest {
             'haltOnFailure' => true,
             'strict' => true,
             'trace' => false,
+            'formatter' => null,
         ];
 
         foreach ($config as $key => $value) {
@@ -159,6 +164,27 @@ class CTGTest {
             throw new CTGTestError('INVALID_CONFIG', "trace must be bool", [
                 'key' => 'trace', 'value' => $merged['trace'],
             ]);
+        }
+
+        $formatter = $merged['formatter'];
+        if ($formatter !== null) {
+            if (!is_string($formatter)) {
+                throw new CTGTestError('INVALID_CONFIG', "formatter must be a class-string or null", [
+                    'key' => 'formatter', 'value' => $formatter,
+                ]);
+            }
+            if (!class_exists($formatter)) {
+                throw new CTGTestError('INVALID_CONFIG', "formatter class does not exist: {$formatter}", [
+                    'key' => 'formatter', 'value' => $formatter,
+                ]);
+            }
+            if (!in_array(CTGTestFormatterInterface::class, class_implements($formatter) ?: [], true)) {
+                throw new CTGTestError('INVALID_CONFIG', "formatter class must implement CTGTestFormatterInterface: {$formatter}", [
+                    'key' => 'formatter',
+                    'value' => $formatter,
+                    'required_interface' => CTGTestFormatterInterface::class,
+                ]);
+            }
         }
 
         return $merged;
@@ -620,11 +646,17 @@ class CTGTest {
      */
 
     // :: ARRAY, ARRAY -> STRING|ARRAY|NULL
-    // Delivers the report via the configured output mode
+    // Delivers the report via the configured output mode or custom formatter
     private function _deliver(array $report, array $config): string|array|null {
         $output = $config['output'];
+        $formatter = $config['formatter'];
 
         try {
+            // Custom formatter overrides output mode dispatch
+            if ($formatter !== null) {
+                return $this->_deliverCustom($report, $formatter, $config);
+            }
+
             return match ($output) {
                 'console' => $this->_deliverConsole($report),
                 'return' => CTGTestConsoleFormatter::format($report),
@@ -638,8 +670,9 @@ class CTGTest {
         } catch (CTGTestError $e) {
             throw $e;
         } catch (\Throwable $e) {
-            throw new CTGTestError('FORMATTER_ERROR', "Formatter '{$output}' threw an exception", [
-                'formatter' => $output,
+            $formatterLabel = $formatter ?? $output;
+            throw new CTGTestError('FORMATTER_ERROR', "Formatter '{$formatterLabel}' threw an exception", [
+                'formatter' => $formatterLabel,
                 'exception' => CTGTestResult::formatException($e, $config['trace']),
                 'report' => $report,
             ]);
@@ -662,6 +695,21 @@ class CTGTest {
     // :: ARRAY, ARRAY -> NULL
     private function _deliverJunit(array $report, array $config): null {
         echo CTGTestJunitFormatter::format($report, $config['trace']);
+        return null;
+    }
+
+    // :: ARRAY, STRING, ARRAY -> STRING|NULL
+    // Delivers via a custom formatter class — output mode determines return vs echo behavior
+    private function _deliverCustom(array $report, string $formatter, array $config): string|null {
+        $formatted = $formatter::format($report);
+        $output = $config['output'];
+
+        // 'return' and 'return-json' return the formatted string; all others echo to stdout
+        if ($output === 'return' || $output === 'return-json') {
+            return $formatted;
+        }
+
+        echo $formatted;
         return null;
     }
 
@@ -702,5 +750,19 @@ class CTGTest {
     // Fix #3: Returns static and uses new static() for subclass support
     public static function init(string $name): static {
         return new static($name);
+    }
+
+    // :: ARRAY -> VOID
+    // Stores CLI config for retrieval by test files. Called by the CLI runner.
+    // Replaces $GLOBALS['CTG_TEST_CONFIG'] with a typed static interface.
+    public static function setCliConfig(array $config): void {
+        self::$_cliConfig = $config;
+    }
+
+    // :: VOID -> ARRAY
+    // Returns CLI config set by the runner. Returns empty array if none was set.
+    // Test files use this instead of reading $GLOBALS.
+    public static function getCliConfig(): array {
+        return self::$_cliConfig;
     }
 }

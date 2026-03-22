@@ -92,6 +92,18 @@ $report = $test->start($subject, ['output' => 'return-json']);
 | haltOnFailure | BOOL | `true` | Stop on first fail or error. Recursive at every level. |
 | strict | BOOL | `true` | Use `===` (true) or `==` (false) for comparisons |
 | trace | BOOL | `false` | Include stack traces in exception structures |
+| formatter | ?STRING | `null` | Class-string of a custom formatter implementing `CTGTestFormatterInterface`. Overrides default output mode formatter when set. |
+
+When `formatter` is set, the custom formatter's `format()` method produces the output string. The `output` mode still controls delivery behavior: `return` and `return-json` return the formatted string; all other modes echo it to stdout.
+
+```php
+$test->start($subject, [
+    'output' => 'return',
+    'formatter' => MyCustomFormatter::class,
+]);
+```
+
+Validation at config time ensures the class exists and implements `CTGTestFormatterInterface`. If the class does not exist or does not implement the interface, `INVALID_CONFIG` is thrown. If the formatter's `format()` method throws, the exception is wrapped in `FORMATTER_ERROR`.
 
 #### Output Modes
 
@@ -102,6 +114,30 @@ $report = $test->start($subject, ['output' => 'return-json']);
 | `'return-json'` | ARRAY | None |
 | `'json'` | NULL | Echoes JSON to stdout |
 | `'junit'` | NULL | Echoes JUnit XML to stdout |
+
+### CTGTest.setCliConfig :: ARRAY -> VOID
+
+Static method called by the CLI runner to store config parsed from command-line flags. Replaces `$GLOBALS['CTG_TEST_CONFIG']` with a typed static interface. Test files retrieve the config via `getCliConfig()`.
+
+```php
+// In the CLI runner:
+CTGTest::setCliConfig(['output' => 'json', 'trace' => true]);
+```
+
+### CTGTest.getCliConfig :: VOID -> ARRAY
+
+Static method that returns the CLI config set by the runner. Returns an empty array if no config was set. Test files use this to receive CLI flags without reading globals.
+
+```php
+// In a test file:
+$config = CTGTest::getCliConfig();
+CTGTest::init('my test')
+    ->assert('ok', fn($x) => true, true)
+    ->start($subject, $config);
+
+// Merging with local overrides:
+$config = array_merge(CTGTest::getCliConfig(), ['haltOnFailure' => false]);
+```
 
 ### ctgTest.compare :: MIXED, MIXED, BOOL -> BOOL
 

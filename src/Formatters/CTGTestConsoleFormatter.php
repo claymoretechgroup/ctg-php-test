@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace CTG\Test\Formatters;
 
 // Human-readable console output formatter for test reports
-class CTGTestConsoleFormatter {
+class CTGTestConsoleFormatter implements CTGTestFormatterInterface {
 
     /**
      *
