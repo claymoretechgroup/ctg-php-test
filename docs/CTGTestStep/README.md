@@ -6,7 +6,7 @@ Immutable value object representing a single step definition in a test pipeline.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| _type | STRING | Step type: `'stage'`, `'assert'`, or `'chain'` |
+| _type | STRING | Step type: `'stage'`, `'assert'`, `'assert-any'`, or `'chain'` |
 | _name | STRING | Step name (trimmed at construction) |
 | _fn | MIXED | Callable for stage/assert, or ctgTest instance for chain |
 | _expected | MIXED | Expected value for assert steps, null for others |
@@ -18,6 +18,7 @@ Immutable value object representing a single step definition in a test pipeline.
 |----------|-------|
 | TYPE_STAGE | `'stage'` |
 | TYPE_ASSERT | `'assert'` |
+| TYPE_ASSERT_ANY | `'assert-any'` |
 | TYPE_CHAIN | `'chain'` |
 
 ## Methods

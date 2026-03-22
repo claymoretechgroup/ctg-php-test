@@ -71,6 +71,29 @@ class CTGTestResult {
         ];
     }
 
+    // :: STRING, STRING, INT, MIXED, ARRAY, ?STRING, ?ARRAY -> ARRAY
+    // Creates a step result array for assert-any steps with actual and candidates
+    public static function assertAnyResult(
+        string $name,
+        string $status,
+        int $durationMs,
+        mixed $actual,
+        array $candidates,
+        ?string $message = null,
+        ?array $exception = null
+    ): array {
+        return [
+            'type' => 'assert-any',
+            'name' => $name,
+            'status' => $status,
+            'duration_ms' => $durationMs,
+            'message' => $message,
+            'exception' => $exception,
+            'actual' => $actual,
+            'candidates' => $candidates,
+        ];
+    }
+
     // :: STRING, STRING, INT, ?STRING, ?ARRAY, ARRAY, ARRAY -> ARRAY
     // Creates a chain step result with nested children and aggregate counts
     public static function chainResult(

@@ -84,27 +84,22 @@ selfTest('predicate style assert', fn() =>
         ->start(42, ['output' => 'return-json'])['status'] === 'pass'
 );
 
-// ── Assert Array Expected ────────────────────────────────────
+// ── Assert with Array Expected (direct comparison) ───────────
 
-selfTest('candidate set pass', fn() =>
-    CTGTest::init('candidates')
-        ->assert('in set', fn($x) => $x, [1, 2, 3])
-        ->start(2, ['output' => 'return-json'])['status'] === 'pass'
-);
+selfTest('assert array expected does direct comparison', function() {
+    $r = CTGTest::init('array direct')
+        ->assert('exact match', fn($x) => $x, [1, 2, 3])
+        ->start([1, 2, 3], ['output' => 'return-json']);
+    return $r['status'] === 'pass';
+});
 
-selfTest('candidate set fail', fn() =>
-    CTGTest::init('candidates fail')
-        ->assert('not in set', fn($x) => $x, [1, 2, 3])
-        ->start(99, ['output' => 'return-json'])['status'] === 'fail'
-);
+selfTest('assert array expected fails when not exact match', function() {
+    $r = CTGTest::init('array direct fail')
+        ->assert('exact match', fn($x) => $x, [1, 2, 3])
+        ->start(2, ['output' => 'return-json']);
+    return $r['status'] === 'fail';
+});
 
-selfTest('exact array match via wrapper', fn() =>
-    CTGTest::init('exact array')
-        ->assert('exact', fn($x) => $x, [['a', 'b']])
-        ->start(['a', 'b'], ['output' => 'return-json'])['status'] === 'pass'
-);
-
-// Fix #5: Empty array expected edge case
 selfTest('empty array expected matches empty array actual', function() {
     $r = CTGTest::init('empty array')
         ->assert('empty', fn($x) => $x, [])
@@ -117,6 +112,63 @@ selfTest('empty array expected fails for non-empty actual', function() {
         ->assert('empty', fn($x) => $x, [])
         ->start([1, 2], ['output' => 'return-json']);
     return $r['status'] === 'fail';
+});
+
+// ── AssertAny ────────────────────────────────────────────────
+
+selfTest('assertAny pass when actual matches a candidate', fn() =>
+    CTGTest::init('assertAny pass')
+        ->assertAny('in set', fn($x) => $x, [1, 2, 3])
+        ->start(2, ['output' => 'return-json'])['status'] === 'pass'
+);
+
+selfTest('assertAny fail when actual matches no candidate', fn() =>
+    CTGTest::init('assertAny fail')
+        ->assertAny('not in set', fn($x) => $x, [1, 2, 3])
+        ->start(99, ['output' => 'return-json'])['status'] === 'fail'
+);
+
+selfTest('assertAny empty candidates always fails', function() {
+    $r = CTGTest::init('assertAny empty')
+        ->assertAny('no candidates', fn($x) => $x, [])
+        ->start(1, ['output' => 'return-json']);
+    return $r['status'] === 'fail'
+        && str_contains($r['steps'][0]['message'], 'expected any of');
+});
+
+selfTest('assertAny result has candidates field', function() {
+    $r = CTGTest::init('assertAny shape')
+        ->assertAny('check', fn($x) => $x, [1, 2, 3])
+        ->start(2, ['output' => 'return-json']);
+    return $r['steps'][0]['type'] === 'assert-any'
+        && $r['steps'][0]['candidates'] === [1, 2, 3]
+        && $r['steps'][0]['actual'] === 2;
+});
+
+selfTest('assertAny does not mutate subject', function() {
+    $r = CTGTest::init('assertAny no mutate')
+        ->assertAny('first', fn($x) => $x, [5, 10])
+        ->assert('still 5', fn($x) => $x, 5)
+        ->start(5, ['output' => 'return-json']);
+    return $r['status'] === 'pass' && $r['total'] === 2;
+});
+
+selfTest('assertAny interacts with stage', function() {
+    $r = CTGTest::init('assertAny pipeline')
+        ->stage('double', fn($x) => $x * 2)
+        ->assertAny('in set', fn($x) => $x, [8, 10, 12])
+        ->start(5, ['output' => 'return-json']);
+    return $r['status'] === 'pass';
+});
+
+selfTest('assertAny respects strict mode', function() {
+    $strict = CTGTest::init('assertAny strict')
+        ->assertAny('type mismatch', fn($x) => $x, ['1', '2'])
+        ->start(1, ['output' => 'return-json']);
+    $loose = CTGTest::init('assertAny loose')
+        ->assertAny('type coerce', fn($x) => $x, ['1', '2'])
+        ->start(1, ['output' => 'return-json', 'strict' => false]);
+    return $strict['status'] === 'fail' && $loose['status'] === 'pass';
 });
 
 // ── Stage + Assert Pipeline ──────────────────────────────────

@@ -40,6 +40,14 @@ Creates a step result array for assert steps, including `actual` and `expected` 
 $result = CTGTestResult::assertResult('check id', 'fail', 1, 3, 5, 'expected 5 but got 3');
 ```
 
+### CTGTestResult.assertAnyResult :: STRING, STRING, INT, MIXED, ARRAY, ?STRING, ?ARRAY -> ARRAY
+
+Creates a step result array for assert-any steps, including `actual` and `candidates` fields.
+
+```php
+$result = CTGTestResult::assertAnyResult('check status', 'pass', 1, 'active', ['active', 'pending']);
+```
+
 ### CTGTestResult.chainResult :: STRING, STRING, INT, ?STRING, ?ARRAY, ARRAY, ARRAY -> ARRAY
 
 Creates a chain step result with nested child steps and aggregate counts.

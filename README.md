@@ -49,19 +49,19 @@ CTGTest::init('type checks')
 
 ### Candidate Set Assert
 
-Pass an array of acceptable values. Assert passes if actual matches any candidate:
+Use `assertAny` when the actual value should match any one of several acceptable values:
 
 ```php
 CTGTest::init('status check')
-    ->assert('valid status', fn($x) => $x->getStatus(), ['active', 'pending', 'trial'])
+    ->assertAny('valid status', fn($x) => $x->getStatus(), ['active', 'pending', 'trial'])
     ->start($user);
 ```
 
-To match an exact array value, wrap it in a single-element array:
+Note: `assert` always does direct comparison. If you pass an array as expected to `assert`, it compares the actual value against that exact array:
 
 ```php
 CTGTest::init('exact match')
-    ->assert('exact tags', fn($x) => $x->getTags(), [['php', 'test']])
+    ->assert('exact tags', fn($x) => $x->getTags(), ['php', 'test'])
     ->start($post);
 ```
 

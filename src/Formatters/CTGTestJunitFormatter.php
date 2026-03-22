@@ -64,7 +64,11 @@ class CTGTestJunitFormatter {
         if ($status === CTGTestResult::STATUS_FAIL) {
             $xml->startElement('failure');
             $xml->writeAttribute('message', $step['message'] ?? 'assertion failed');
-            if (isset($step['actual']) && isset($step['expected'])) {
+            if (isset($step['actual']) && isset($step['candidates'])) {
+                $body = 'Candidates: ' . CTGTestResult::formatValue($step['candidates']) . "\n"
+                      . 'Actual: ' . CTGTestResult::formatValue($step['actual']);
+                $xml->text($body);
+            } elseif (isset($step['actual']) && isset($step['expected'])) {
                 $body = 'Expected: ' . CTGTestResult::formatValue($step['expected']) . "\n"
                       . 'Actual: ' . CTGTestResult::formatValue($step['actual']);
                 $xml->text($body);

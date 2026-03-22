@@ -51,6 +51,14 @@ class CTGTest {
         return $this;
     }
 
+    // :: STRING, (MIXED -> MIXED), ARRAY, ?((MIXED -> MIXED)) -> $this
+    // Adds an assert-any step to the pipeline — inspects the subject and passes if actual matches any candidate
+    // NOTE: No validation during definition; all validation deferred to start()
+    public function assertAny(string $name, mixed $fn, array $expected, mixed $errorHandler = null): static {
+        $this->_steps[] = new CTGTestStep(CTGTestStep::TYPE_ASSERT_ANY, $name, $fn, $expected, $errorHandler);
+        return $this;
+    }
+
     // :: STRING, CTGTest -> $this
     // Adds a chain step — composes another CTGTest's steps as a named group
     // NOTE: No validation during definition; all validation deferred to start()
@@ -237,6 +245,16 @@ class CTGTest {
                     ]);
                 }
             }
+
+            if ($type === CTGTestStep::TYPE_ASSERT_ANY) {
+                $expected = $step->getExpected();
+                if (!is_array($expected)) {
+                    throw new CTGTestError('INVALID_EXPECTED', "AssertAny '{$name}' expected value must be an array of candidates", [
+                        'step_name' => $name,
+                        'got' => gettype($expected),
+                    ]);
+                }
+            }
         }
     }
 
@@ -332,6 +350,7 @@ class CTGTest {
             $result = match ($type) {
                 CTGTestStep::TYPE_STAGE => $this->_executeStage($step, $subject, $config),
                 CTGTestStep::TYPE_ASSERT => $this->_executeAssert($step, $subject, $config),
+                CTGTestStep::TYPE_ASSERT_ANY => $this->_executeAssertAny($step, $subject, $config),
                 CTGTestStep::TYPE_CHAIN => $this->_executeChain($step, $subject, $config),
                 // Fix #11: Default arm for unknown step types
                 default => CTGTestResult::stepResult($type, $name, CTGTestResult::STATUS_ERROR, 0,
@@ -439,6 +458,72 @@ class CTGTest {
     }
 
     // :: CTGTestStep, MIXED, ARRAY -> ARRAY
+    // Executes an assert-any step: call fn, compare result against each candidate, pass if any match
+    private function _executeAssertAny(CTGTestStep $step, mixed $subject, array $config): array {
+        $name = $step->getName();
+        $fn = $step->getFn();
+        $candidates = $step->getExpected();
+        $errorHandler = $step->getErrorHandler();
+        $startTime = hrtime(true);
+
+        try {
+            $actual = $fn($subject);
+            $durationMs = $this->_elapsed($startTime);
+
+            // Check comparability of actual value
+            $visited = [];
+            $typeError = $this->_checkValueComparable($actual, $visited, 0);
+            if ($typeError !== null) {
+                return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_ERROR, $durationMs, $actual, $candidates,
+                    "actual value contains {$typeError}");
+            }
+
+            // Check comparability of each candidate
+            foreach ($candidates as $i => $candidate) {
+                $visited = [];
+                $typeError = $this->_checkValueComparable($candidate, $visited, 0);
+                if ($typeError !== null) {
+                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_ERROR, $durationMs, $actual, $candidates,
+                        "candidate [{$i}] contains {$typeError}");
+                }
+            }
+
+            // Try each candidate
+            foreach ($candidates as $candidate) {
+                if ($this->compare($actual, $candidate, $config['strict'])) {
+                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_PASS, $durationMs, $actual, $candidates);
+                }
+            }
+
+            return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_FAIL, $durationMs, $actual, $candidates,
+                'expected any of ' . CTGTestResult::formatValue($candidates) . ' but got ' . CTGTestResult::formatValue($actual)
+            );
+        } catch (\Throwable $e) {
+            if ($errorHandler !== null) {
+                try {
+                    $recoveredValue = $errorHandler($e);
+                    $durationMs = $this->_elapsed($startTime);
+                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $candidates,
+                        'error handler invoked, produced ' . CTGTestResult::formatValue($recoveredValue),
+                        CTGTestResult::formatException($e, $config['trace'])
+                    );
+                } catch (\Throwable $handlerError) {
+                    $durationMs = $this->_elapsed($startTime);
+                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_ERROR, $durationMs, null, $candidates,
+                        get_class($handlerError) . ': ' . $handlerError->getMessage(),
+                        CTGTestResult::formatException($handlerError, $config['trace'], CTGTestResult::formatException($e, $config['trace']))
+                    );
+                }
+            }
+            $durationMs = $this->_elapsed($startTime);
+            return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_ERROR, $durationMs, null, $candidates,
+                get_class($e) . ': ' . $e->getMessage(),
+                CTGTestResult::formatException($e, $config['trace'])
+            );
+        }
+    }
+
+    // :: CTGTestStep, MIXED, ARRAY -> ARRAY
     // Executes a chain step: run the chained CTGTest's steps inline
     private function _executeChain(CTGTestStep $step, mixed &$subject, array $config): array {
         $name = $step->getName();
@@ -469,21 +554,8 @@ class CTGTest {
     }
 
     // :: MIXED, MIXED, BOOL -> BOOL
-    // Compares actual against expected, handling candidate-set arrays
-    // Fix #5: Empty array expected [] now passes only if actual is also []
+    // Compares actual against expected — always direct comparison
     private function _compareExpected(mixed $actual, mixed $expected, bool $strict): bool {
-        if (is_array($expected)) {
-            // Fix #5: Empty array means "expect empty array", not "no candidates"
-            if (empty($expected)) {
-                return $this->compare($actual, $expected, $strict);
-            }
-            foreach ($expected as $candidate) {
-                if ($this->compare($actual, $candidate, $strict)) {
-                    return true;
-                }
-            }
-            return false;
-        }
         return $this->compare($actual, $expected, $strict);
     }
 
@@ -610,6 +682,7 @@ class CTGTest {
     private function _makeSkipResult(string $type, string $name): array {
         return match ($type) {
             CTGTestStep::TYPE_ASSERT => CTGTestResult::assertResult($name, CTGTestResult::STATUS_SKIP, 0, null, null),
+            CTGTestStep::TYPE_ASSERT_ANY => CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_SKIP, 0, null, []),
             CTGTestStep::TYPE_CHAIN => CTGTestResult::chainResult($name, CTGTestResult::STATUS_SKIP, 0, null, null, [], [
                 'passed' => 0, 'failed' => 0, 'skipped' => 0, 'recovered' => 0, 'errored' => 0, 'total' => 0,
             ]),

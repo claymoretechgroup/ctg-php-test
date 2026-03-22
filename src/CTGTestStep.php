@@ -9,6 +9,7 @@ class CTGTestStep {
     /* Constants */
     public const TYPE_STAGE = 'stage';
     public const TYPE_ASSERT = 'assert';
+    public const TYPE_ASSERT_ANY = 'assert-any';
     public const TYPE_CHAIN = 'chain';
 
     /* Instance Properties */
@@ -42,7 +43,7 @@ class CTGTestStep {
      */
 
     // :: VOID -> STRING
-    // Returns the step type: 'stage', 'assert', or 'chain'
+    // Returns the step type: 'stage', 'assert', 'assert-any', or 'chain'
     public function getType(): string {
         return $this->_type;
     }

@@ -30,14 +30,23 @@ $test = CTGTest::init('DB setup')
     ->stage('insert', fn($db) => $db->create('users', $data));
 ```
 
-### ctgTest.assert :: STRING, (MIXED -> MIXED), MIXED|[MIXED], ?(ERROR -> MIXED) -> SELF
+### ctgTest.assert :: STRING, (MIXED -> MIXED), MIXED, ?(ERROR -> MIXED) -> SELF
 
-Adds an assert step to the pipeline. At execution time, the callable receives the current subject and returns a value that is compared against the expected value. Assert does not mutate the subject -- multiple asserts in a row all operate on the same subject. Expected is always a value, never callable. For predicate-style checks, the callable returns bool and expected is `true`. If expected is an array, it is treated as a candidate set -- the assert passes if actual equals any one candidate. Chainable.
+Adds an assert step to the pipeline. At execution time, the callable receives the current subject and returns a value that is compared directly against the expected value. Assert does not mutate the subject -- multiple asserts in a row all operate on the same subject. Expected is always a value, never callable. For predicate-style checks, the callable returns bool and expected is `true`. Array expected values are compared directly (no candidate set semantics). Chainable.
 
 ```php
 $test = CTGTest::init('checks')
     ->assert('is int', fn($x) => is_int($x), true)
-    ->assert('valid status', fn($x) => $x->getStatus(), ['active', 'pending']);
+    ->assert('has tags', fn($x) => $x->getTags(), ['php', 'test']);
+```
+
+### ctgTest.assertAny :: STRING, (MIXED -> MIXED), ARRAY, ?(ERROR -> MIXED) -> SELF
+
+Adds an assert-any step to the pipeline. At execution time, the callable receives the current subject and returns a value that is compared against each candidate in the array. The step passes if actual matches any one candidate. Assert-any does not mutate the subject. The expected argument must be an array. Empty arrays always fail (no candidates to match). Supports error handlers like `assert`. Chainable.
+
+```php
+$test = CTGTest::init('checks')
+    ->assertAny('valid status', fn($x) => $x->getStatus(), ['active', 'pending', 'trial']);
 ```
 
 ### ctgTest.chain :: STRING, ctgTest -> SELF
