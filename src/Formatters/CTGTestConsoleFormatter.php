@@ -12,9 +12,9 @@ class CTGTestConsoleFormatter implements CTGTestFormatterInterface {
      *
      */
 
-    // :: ARRAY -> STRING
+    // :: ARRAY, ARRAY -> STRING
     // Formats a report tree into a human-readable string
-    public static function format(array $report): string {
+    public static function format(array $report, array $config = []): string {
         $output = $report['name'] . "\n";
         $output .= self::_formatSteps($report['steps'], 1);
         $output .= "\n";

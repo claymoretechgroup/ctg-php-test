@@ -451,7 +451,7 @@ class CTGTest {
                 return CTGTestResult::assertResult($name, CTGTestResult::STATUS_ERROR, $durationMs, $actual, $expected, $typeError);
             }
 
-            if ($this->_compareExpected($actual, $expected, $config['strict'])) {
+            if ($this->compare($actual, $expected, $config['strict'])) {
                 return CTGTestResult::assertResult($name, CTGTestResult::STATUS_PASS, $durationMs, $actual, $expected);
             }
 
@@ -579,12 +579,6 @@ class CTGTest {
         return $strict ? $actual === $expected : $actual == $expected;
     }
 
-    // :: MIXED, MIXED, BOOL -> BOOL
-    // Compares actual against expected — always direct comparison
-    private function _compareExpected(mixed $actual, mixed $expected, bool $strict): bool {
-        return $this->compare($actual, $expected, $strict);
-    }
-
     // :: MIXED, MIXED -> ?STRING
     // Checks if either side contains uncomparable types (resources, closures, cycles)
     private function _checkComparable(mixed $actual, mixed $expected): ?string {
@@ -694,21 +688,31 @@ class CTGTest {
 
     // :: ARRAY, ARRAY -> NULL
     private function _deliverJunit(array $report, array $config): null {
-        echo CTGTestJunitFormatter::format($report, $config['trace']);
+        echo CTGTestJunitFormatter::format($report, $config);
         return null;
     }
 
-    // :: ARRAY, STRING, ARRAY -> STRING|NULL
+    // :: ARRAY, STRING, ARRAY -> STRING|ARRAY|NULL
     // Delivers via a custom formatter class — output mode determines return vs echo behavior
-    private function _deliverCustom(array $report, string $formatter, array $config): string|null {
-        $formatted = $formatter::format($report);
+    // return-json always returns the report array (custom formatter only affects echo-based modes)
+    // return mode returns the formatted string
+    // All other modes echo the formatted string to stdout
+    private function _deliverCustom(array $report, string $formatter, array $config): string|array|null {
         $output = $config['output'];
 
-        // 'return' and 'return-json' return the formatted string; all others echo to stdout
-        if ($output === 'return' || $output === 'return-json') {
+        // return-json always returns the report array regardless of custom formatter
+        if ($output === 'return-json') {
+            return $report;
+        }
+
+        $formatted = $formatter::format($report, $config);
+
+        // return mode returns the formatted string
+        if ($output === 'return') {
             return $formatted;
         }
 
+        // All other modes echo to stdout
         echo $formatted;
         return null;
     }

@@ -675,7 +675,7 @@ selfTest('JunitFormatter includes trace when enabled', function() {
             'RuntimeException: boom',
             CTGTestResult::formatException(new \RuntimeException('boom'), true)),
     ]);
-    $output = CTGTestJunitFormatter::format($report, true);
+    $output = CTGTestJunitFormatter::format($report, ['trace' => true]);
     return str_contains($output, '#0');
 });
 
@@ -775,6 +775,33 @@ selfTest('INVALID_CONFIG for class not implementing interface', function() {
     } catch (CTGTestError $e) {
         return $e->getCode() === CTGTestError::INVALID_CONFIG
             && str_contains($e->getMessage(), 'CTGTestFormatterInterface');
+    }
+});
+
+selfTest('return-json with custom formatter returns array not string', function() {
+    $r = CTGTest::init('custom fmt json')
+        ->assert('p', function($x) { return $x; }, 1)
+        ->start(1, ['output' => 'return-json', 'formatter' => CTGTestJsonFormatter::class]);
+    return is_array($r) && $r['name'] === 'custom fmt json' && $r['status'] === 'pass';
+});
+
+selfTest('custom formatter receives config with trace flag', function() {
+    ob_start();
+    CTGTest::init('custom trace')
+        ->stage('throws', function($x) { throw new \RuntimeException('boom'); })
+        ->start(1, ['output' => 'junit', 'formatter' => CTGTestJunitFormatter::class, 'trace' => true, 'haltOnFailure' => true]);
+    $output = ob_get_clean();
+    // JUnit formatter with trace=true should include trace information from config
+    return str_contains($output, '<error');
+});
+
+selfTest('JsonFormatter throws on encode failure', function() {
+    $report = ['bad' => NAN];
+    try {
+        CTGTestJsonFormatter::format($report);
+        return 'no throw';
+    } catch (\RuntimeException $e) {
+        return str_contains($e->getMessage(), 'json_encode failed');
     }
 });
 

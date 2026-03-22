@@ -14,10 +14,12 @@ class CTGTestJunitFormatter implements CTGTestFormatterInterface {
      *
      */
 
-    // :: ARRAY, BOOL -> STRING
+    // :: ARRAY, ARRAY -> STRING
     // Formats a report tree as JUnit XML
     // NOTE: Recovered maps to testcase with system-out — JUnit has no recovery concept
-    public static function format(array $report, bool $includeTrace = false): string {
+    // Trace inclusion is read from config['trace'] (defaults to false)
+    public static function format(array $report, array $config = []): string {
+        $includeTrace = $config['trace'] ?? false;
         $xml = new \XMLWriter();
         $xml->openMemory();
         $xml->setIndent(true);

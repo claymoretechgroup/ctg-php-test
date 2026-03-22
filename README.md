@@ -205,6 +205,27 @@ $crudTest->start(Postgres::class);
 $crudTest->start(SQLite::class);
 ```
 
+### Closure Purity in Reusable Definitions
+
+When reusing a test definition across multiple subjects, be aware that closures capture variables by reference from their enclosing scope. If a stage or assert closure closes over mutable state (e.g., a counter, a connection handle, or an array accumulator), that state will persist across `start()` calls:
+
+```php
+$count = 0;
+$test = CTGTest::init('stateful')
+    ->stage('increment', function($x) use (&$count) {
+        $count++;
+        return $x;
+    })
+    ->assert('check count', function($x) use (&$count) {
+        return $count;
+    }, 1);
+
+$test->start('a');  // $count is now 1 — passes
+$test->start('b');  // $count is now 2 — fails! expected 1 but got 2
+```
+
+For reusable definitions, keep closures pure — depend only on the subject argument, not on captured mutable state. If shared state is necessary, reset it before each `start()` call or use a fresh definition per subject.
+
 ## Class Documentation
 
 * [CTGTest](docs/CTGTest/)
