@@ -79,12 +79,7 @@ foreach ($files as $file) {
     }
 
     try {
-        $fileReturn = require $file;
-        if (is_array($fileReturn) && isset($fileReturn['status'])) {
-            if ($fileReturn['status'] === 'fail' || $fileReturn['status'] === 'error') {
-                $hasFailure = true;
-            }
-        }
+        require $file;
     } catch (CTGTestError $e) {
         echo "CTGTestError in {$file}: [{$e->type}] {$e->getMessage()}\n";
         $hasFailure = true;

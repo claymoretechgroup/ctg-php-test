@@ -482,8 +482,20 @@ class CTGTest {
                 try {
                     $recoveredValue = $errorHandler($e);
                     $durationMs = $this->_elapsed($startTime);
-                    return CTGTestResult::assertResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $expected,
-                        'error handler invoked, produced ' . CTGTestResult::formatValue($recoveredValue),
+                    $typeError = $this->_checkComparable($recoveredValue, $expected);
+                    if ($typeError !== null) {
+                        return CTGTestResult::assertResult($name, CTGTestResult::STATUS_ERROR, $durationMs, $recoveredValue, $expected, $typeError,
+                            CTGTestResult::formatException($e, $config['trace'])
+                        );
+                    }
+                    if ($this->compare($recoveredValue, $expected, $config['strict'])) {
+                        return CTGTestResult::assertResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $expected,
+                            'error handler invoked, comparison passed',
+                            CTGTestResult::formatException($e, $config['trace'])
+                        );
+                    }
+                    return CTGTestResult::assertResult($name, CTGTestResult::STATUS_FAIL, $durationMs, $recoveredValue, $expected,
+                        'error handler invoked, but expected ' . CTGTestResult::formatValue($expected) . ' got ' . CTGTestResult::formatValue($recoveredValue),
                         CTGTestResult::formatException($e, $config['trace'])
                     );
                 } catch (\Throwable $handlerError) {
@@ -548,8 +560,21 @@ class CTGTest {
                 try {
                     $recoveredValue = $errorHandler($e);
                     $durationMs = $this->_elapsed($startTime);
-                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $candidates,
-                        'error handler invoked, produced ' . CTGTestResult::formatValue($recoveredValue),
+                    $matched = false;
+                    foreach ($candidates as $candidate) {
+                        if ($this->compare($recoveredValue, $candidate, $config['strict'])) {
+                            $matched = true;
+                            break;
+                        }
+                    }
+                    if ($matched) {
+                        return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_RECOVERED, $durationMs, $recoveredValue, $candidates,
+                            'error handler invoked, comparison passed',
+                            CTGTestResult::formatException($e, $config['trace'])
+                        );
+                    }
+                    return CTGTestResult::assertAnyResult($name, CTGTestResult::STATUS_FAIL, $durationMs, $recoveredValue, $candidates,
+                        'error handler invoked, but expected any of ' . CTGTestResult::formatValue($candidates) . ' got ' . CTGTestResult::formatValue($recoveredValue),
                         CTGTestResult::formatException($e, $config['trace'])
                     );
                 } catch (\Throwable $handlerError) {
@@ -642,9 +667,12 @@ class CTGTest {
             $visited[$id] = true;
 
             $reflection = new \ReflectionObject($value);
-            foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $prop) {
-                $error = $this->_checkValueComparable($prop->getValue($value), $visited, $arrayDepth);
-                if ($error !== null) { return $error; }
+            foreach ($reflection->getProperties() as $prop) {
+                $prop->setAccessible(true);
+                if ($prop->isInitialized($value)) {
+                    $error = $this->_checkValueComparable($prop->getValue($value), $visited, $arrayDepth);
+                    if ($error !== null) { return $error; }
+                }
             }
             return null;
         }

@@ -210,7 +210,9 @@ class CTGTestResult {
             $result['trace'] = $e->getTraceAsString();
         }
 
-        $result['caused_by'] = $causedBy;
+        if ($causedBy !== null) {
+            $result['caused_by'] = $causedBy;
+        }
 
         return $result;
     }

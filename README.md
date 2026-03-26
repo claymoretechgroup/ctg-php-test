@@ -232,7 +232,6 @@ The pipeline model supports mocking through regular stages — no special mock A
 
 ```php
 CTGTest::init('service calls dependency')
-    ->subject($service)
     ->stage('inject proxy', function($service) {
         $proxy = new RecordingProxy($service->getDependency());
         $service->setDependency($proxy);
@@ -246,7 +245,7 @@ CTGTest::init('service calls dependency')
         $service->getDependency()->getCalls()[0]['args'],
         ['expected', 'arguments']
     )
-    ->start();
+    ->start($service);
 ```
 
 The framework doesn't need to know anything about mocking internals — the recording proxy is user-provided code, and asserts check its call log like any other value. A `RecordingProxy` utility class and a dedicated `mock` convenience method are under consideration for a future release.
