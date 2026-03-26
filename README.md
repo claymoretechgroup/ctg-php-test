@@ -252,10 +252,11 @@ The framework doesn't need to know anything about mocking internals — the reco
 
 ## Class Documentation
 
-* [CTGTest](docs/CTGTest/)
-* [CTGTestError](docs/CTGTestError/)
-* [CTGTestStep](docs/CTGTestStep/)
-* [CTGTestResult](docs/CTGTestResult/)
+* [CTGTest](docs/CTGTest.md)
+* [CTGTestError](docs/CTGTestError.md)
+* [CTGTestStep](docs/CTGTestStep.md)
+* [CTGTestResult](docs/CTGTestResult.md)
+* [Formatters](docs/Formatters.md)
 
 ## Notice
 

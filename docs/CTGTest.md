@@ -175,8 +175,6 @@ The snapshot uses a debug-safe serialization:
 
 When `debug` is false (the default), no `subject` field is added to results and there is zero overhead.
 
-Note: Formatter rendering of debug data (e.g. displaying subject snapshots in console or JUnit output) is a possible future consideration. Currently, debug snapshots are only available in the structured report data (`return-json` mode).
-
 ## Report Structure
 
 The root report has no `type` field -- it is a report, not a step:
