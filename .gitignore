@@ -1,1 +1,29 @@
-/vendor/
+# Environment (contains credentials)
+.env
+
+# Composer
+vendor/
+composer.lock
+
+# Local dependencies
+lib/
+
+# Staging environment
+staging/
+
+# AI
+.claude/
+.codex/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
