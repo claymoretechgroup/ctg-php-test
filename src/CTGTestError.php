@@ -3,83 +3,91 @@ declare(strict_types=1);
 
 namespace CTG\Test;
 
-// Framework exception class for ctg-php-test — typed codes, bidirectional lookup, structured data
+/**
+ * CTGTestError
+ *
+ * Framework error class realizing the FRAMEWORK_ERROR primitive. Extends
+ * \Exception so that thrown errors are catchable with the native PHP
+ * exception machinery. Canonical error types have integer codes in the
+ * ranges documented by the design doc; CHAIN_DEPTH_EXCEEDED is a
+ * structural enforcement error outside the canonical range.
+ */
 class CTGTestError extends \Exception {
 
     /* Constants */
 
-    // Definition-time errors (1xxx)
-    public const INVALID_STEP = 1000;
-    public const INVALID_CHAIN = 1001;
-    public const INVALID_CONFIG = 1002;
-    public const INVALID_EXPECTED = 1003;
-    public const INVALID_SKIP = 1004;
+    // Canonical validation errors (1xxx)
+    public const INVALID_OPERATION         = 1000;
+    public const INVALID_CHAIN             = 1001;
+    public const INVALID_CONFIG            = 1002;
+    public const INVALID_EXPECTED_OUTCOME  = 1003;
+    public const INVALID_SKIP              = 1004;
 
-    // Runtime errors (2xxx)
-    public const FORMATTER_ERROR = 2000;
-    public const RUNNER_ERROR = 2001;
+    // Canonical runtime errors (2xxx)
+    public const FORMATTER_ERROR           = 2000;
+    public const RUNNER_ERROR              = 2001;
 
-    // Bidirectional type map: name <=> code
+    // Structural enforcement errors (1100-1199)
+    public const CHAIN_DEPTH_EXCEEDED      = 1100;
+
+    // Bidirectional type map: name => code
     public const TYPES = [
-        'INVALID_STEP'     => self::INVALID_STEP,
-        'INVALID_CHAIN'    => self::INVALID_CHAIN,
-        'INVALID_CONFIG'   => self::INVALID_CONFIG,
-        'INVALID_EXPECTED' => self::INVALID_EXPECTED,
-        'INVALID_SKIP'     => self::INVALID_SKIP,
-        'FORMATTER_ERROR'  => self::FORMATTER_ERROR,
-        'RUNNER_ERROR'     => self::RUNNER_ERROR,
+        'INVALID_OPERATION'        => 1000,
+        'INVALID_CHAIN'            => 1001,
+        'INVALID_CONFIG'           => 1002,
+        'INVALID_EXPECTED_OUTCOME' => 1003,
+        'INVALID_SKIP'             => 1004,
+        'FORMATTER_ERROR'          => 2000,
+        'RUNNER_ERROR'             => 2001,
+        'CHAIN_DEPTH_EXCEEDED'     => 1100,
     ];
 
     /* Instance Properties */
+
     public readonly string $type;
     public readonly string $msg;
-    public readonly ?array $data;
+    public readonly mixed $data;
 
-    // CONSTRUCTOR :: STRING|INT, ?STRING, ?ARRAY -> $this
-    // Creates a CTGTestError from type name or code, optional message, optional structured data
-    // NOTE: Integer code is passed to parent::__construct so getCode() works natively
-    public function __construct(string|int $type, ?string $message = null, ?array $data = null) {
-        if (is_string($type)) {
-            if (!isset(self::TYPES[$type])) {
-                throw new \InvalidArgumentException("Unknown CTGTestError type: {$type}");
-            }
-            $this->type = $type;
-            $code = self::TYPES[$type];
-        } else {
-            $flipped = array_flip(self::TYPES);
-            if (!isset($flipped[$type])) {
-                throw new \InvalidArgumentException("Unknown CTGTestError code: {$type}");
-            }
-            $this->type = $flipped[$type];
+    // CONSTRUCTOR :: STRING|INT, ?STRING, MIXED -> ctgTestError
+    // Creates an error from a canonical type (name or code), optional message and data.
+    public function __construct(string|int $type, ?string $message = null, mixed $data = null) {
+        // Normalize the type identifier. `lookup()` throws InvalidArgumentException
+        // for anything outside the TYPES map — let it propagate; constructing an
+        // error with an unknown type is itself a caller bug.
+        if (is_int($type)) {
             $code = $type;
+            $name = (string) self::lookup($type);
+        } else {
+            $code = (int) self::lookup($type);
+            $name = $type;
         }
 
-        $this->msg = $message ?? $this->type;
-        $this->data = $data;
+        $msg = $message ?? $name;
 
-        parent::__construct($this->msg, $code);
+        parent::__construct($msg, $code);
+
+        $this->type = $name;
+        $this->msg  = $msg;
+        $this->data = $data;
     }
 
-    /**
-     *
-     * Static Methods
-     *
-     */
+    /* Static Methods */
 
-    // :: STRING|INT -> STRING|INT
-    // Bidirectional lookup: string type name to int code, or int code to string type name
+    // Static :: STRING|INT -> STRING|INT
+    // Bidirectional lookup — name to code or code to name. Throws
+    // InvalidArgumentException for unknown values.
     public static function lookup(string|int $value): string|int {
         if (is_string($value)) {
-            if (!isset(self::TYPES[$value])) {
-                throw new \InvalidArgumentException("Unknown CTGTestError type: {$value}");
+            if (!array_key_exists($value, self::TYPES)) {
+                throw new \InvalidArgumentException("Unknown CTGTestError type name: {$value}");
             }
             return self::TYPES[$value];
         }
 
-        $flipped = array_flip(self::TYPES);
-        if (!isset($flipped[$value])) {
-            throw new \InvalidArgumentException("Unknown CTGTestError code: {$value}");
+        $name = array_search($value, self::TYPES, true);
+        if ($name === false) {
+            throw new \InvalidArgumentException("Unknown CTGTestError type code: {$value}");
         }
-        return $flipped[$value];
+        return $name;
     }
 }

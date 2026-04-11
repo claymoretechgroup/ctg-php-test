@@ -3,11 +3,18 @@ declare(strict_types=1);
 
 namespace CTG\Test\Formatters;
 
-// Contract for test report formatters — all formatters produce a string from a report array
+use CTG\Test\CTGTestState;
+
+/**
+ * CTGTestFormatterInterface
+ *
+ * Contract for the FORMATTER primitive — transforms a final CTGTestState
+ * into a string representation. Formatters consume STATE only; any
+ * formatter-specific configuration (indentation, colour, verbosity) is
+ * the formatter's own concern.
+ */
 interface CTGTestFormatterInterface {
 
-    // :: ARRAY, ARRAY -> STRING
-    // Formats a report array into a string representation
-    // Config array provides access to the full test configuration (output, trace, etc.)
-    public static function format(array $report, array $config = []): string;
+    // Static :: ctgTestState -> STRING
+    public static function format(CTGTestState $state): string;
 }

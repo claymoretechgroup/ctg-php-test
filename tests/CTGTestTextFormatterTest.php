@@ -191,6 +191,95 @@ class CTGTestTextFormatterTest extends TestCase
         $this->assertStringContainsString('computed: null', $output);
     }
 
+    // Spec 6: String values with newlines render as escape sequences, not literal whitespace
+    public function testValueFormattingStringWithNewlineEscapesAsLiteral(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            "foo\nbar",
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        // The computed value should appear as 'foo\nbar' (literal backslash-n),
+        // not as an actual newline that breaks the line-oriented output.
+        $this->assertStringContainsString("computed: 'foo\\nbar'", $output);
+        $this->assertStringNotContainsString("foo\nbar'", $output);
+    }
+
+    // Spec 6: String values with tabs and carriage returns render as escape sequences
+    public function testValueFormattingStringWithTabAndCarriageReturn(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            "tab\there\rreturn",
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        $this->assertStringContainsString("computed: 'tab\\there\\rreturn'", $output);
+    }
+
+    // Spec 6: String values with single quotes are escaped to avoid breaking the delimiter
+    public function testValueFormattingStringWithSingleQuoteEscaped(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            "it's broken",
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        $this->assertStringContainsString("computed: 'it\\'s broken'", $output);
+    }
+
+    // Spec 6: String values with backslashes are escaped
+    public function testValueFormattingStringWithBackslashEscaped(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            'C:\\Users\\test',
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        $this->assertStringContainsString("computed: 'C:\\\\Users\\\\test'", $output);
+    }
+
+    // Spec 6: NUL bytes and other control characters are rendered as \xHH
+    // so they don't produce invisible or ambiguous output.
+    public function testValueFormattingStringWithNulByteEscaped(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            "foo\x00bar",
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        $this->assertStringContainsString("computed: 'foo\\x00bar'", $output);
+    }
+
+    // Spec 6: Other C0 control bytes (bell, backspace, escape, etc.) are escaped
+    public function testValueFormattingStringWithMixedControlBytesEscaped(): void
+    {
+        $state = CTGTestState::init('test', null);
+        $state->addResult(CTGTestResult::assertResult(
+            ['check'],
+            CTGTestStatus::FAIL,
+            "a\x07b\x08c\x1Bd\x7Fe",
+            'expected'
+        ));
+        $output = CTGTestTextFormatter::format($state);
+        // bell (0x07), backspace (0x08), escape (0x1B), DEL (0x7F)
+        $this->assertStringContainsString("computed: 'a\\x07b\\x08c\\x1Bd\\x7Fe'", $output);
+    }
+
     // Spec 6: Result line shows VOID when all results are skipped
     public function testResultLineShowsVoidWhenAllResultsSkipped(): void
     {

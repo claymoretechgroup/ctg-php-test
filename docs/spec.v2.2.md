@@ -618,6 +618,45 @@ PHP is single-threaded and does not support preemptive cancellation of userland 
 
 Timeout enforcement is best-effort. The pipeline records `hrtime(true)` before each operation and checks elapsed time after the operation returns. If the operation exceeded the timeout, the same timeout-exceeded handling applies (return value not applied, ERROR result recorded). This cannot interrupt a long-running operation, but it prevents the operation's effect from being applied.
 
+> ⚠️ **OPERATIONAL RISK — post-hoc timeout detection is NOT hard interruption.**
+>
+> When the `pcntl` extension is unavailable, timeout is detected **only
+> after** the operation's closure returns control to the pipeline. A
+> truly blocking or infinite operation — an unbounded `while` loop, a
+> network call with no socket timeout, a DB query with no query
+> timeout, a fork bomb — **will hang the pipeline indefinitely**. The
+> configured `timeout` value has no effect until control returns.
+>
+> This is a fundamental consequence of PHP's cooperative execution
+> model in environments without signal-based cancellation. The
+> framework cannot forcibly terminate userland code; it can only
+> observe that the code took too long after the fact.
+>
+> **Mitigations callers should apply:**
+> - Set low-level timeouts on any I/O the operation performs
+>   (`curl_setopt(..., CURLOPT_TIMEOUT)`, `stream_set_timeout`,
+>   `PDO::ATTR_TIMEOUT`, etc.)
+> - Avoid unbounded loops inside operation handlers
+> - If running in CI or a process-supervised environment, configure
+>   an outer process-level timeout (e.g., `timeout` command, CI job
+>   timeout) as a hard backstop
+>
+> The framework's timeout config is a **budget observer**, not a
+> **budget enforcer** in environments without `pcntl`. Treat it as a
+> sanity check for accidentally slow operations, not as a guarantee
+> that runaway code will be stopped.
+
+**Timeout precedence when an operation both throws and exceeds budget:**
+
+If an operation's handler (or an assert's predicate) throws an
+exception AND the elapsed time exceeds the configured timeout, the
+framework records the **timeout error**, not the user's thrown
+exception. The rationale: the operation violated the framework's
+budget contract first; the user's exception is secondary. The
+thrown exception is discarded. This ensures a consistent rule —
+"did the operation fit in its budget?" — rather than a case split
+on which failure mode to prefer.
+
 **Timeout value of 0:**
 
 Disables timeout enforcement entirely. No alarm is set, no elapsed-time check is performed.

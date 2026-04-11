@@ -5,6 +5,10 @@
 vendor/
 composer.lock
 
+# PHPUnit
+.phpunit.result.cache
+.phpunit.cache/
+
 # Local dependencies
 lib/
 
