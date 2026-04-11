@@ -686,27 +686,35 @@ All classes in `CTG\Test` namespace. Formatters in `CTG\Test\Formatters`. Predic
 realizes: Left to Language-Specific Specs > Conformance verification
 ```
 
-Tests are written using ctg-php-test itself (v2.2 tests its own framework). Test files live in `tests/`. A test runner script (`tests/run.php` or Makefile target) executes all test files and reports results.
+Tests are written using PHPUnit as an independent oracle. The
+framework runs pipelines and returns STATE; PHPUnit asserts against
+the STATE object using its own proven assertion infrastructure. This
+avoids the bootstrapping problem of self-testing (where a bug in
+result recording would be invisible to tests that use the same
+result recording machinery).
 
-Each design doc requirement maps to one or more test pipelines. The test file naming convention is:
+PHPUnit is a dev-only dependency (`composer require --dev phpunit/phpunit`).
+It does not ship with the library — zero production dependencies are
+preserved.
+
+Each design doc requirement maps to one or more PHPUnit test methods.
+The test file naming follows PHPUnit conventions:
 
 ```
 tests/
-    test_state.php
-    test_predicate.php
-    test_result.php
-    test_pipeline_stage.php
-    test_pipeline_assert.php
-    test_pipeline_chain.php
-    test_pipeline_skip.php
-    test_pipeline_config.php
-    test_pipeline_timeout.php
-    test_error.php
-    test_formatter.php
-    test_predicates_convenience.php
+    CTGTestStateTest.php
+    CTGTestPredicateTest.php
+    CTGTestResultTest.php
+    CTGTestPipelineStageTest.php
+    CTGTestPipelineAssertTest.php
+    CTGTestPipelineChainTest.php
+    CTGTestPipelineSkipTest.php
+    CTGTestPipelineConfigTest.php
+    CTGTestPipelineTimeoutTest.php
+    CTGTestErrorTest.php
+    CTGTestTextFormatterTest.php
+    CTGTestPredicatesConvenienceTest.php
 ```
-
-**No test_step.php.** With CTGTestStep removed from the public surface, there is no standalone step class to test. Step-level behavior is covered by the pipeline operation tests.
 
 ---
 
@@ -959,64 +967,87 @@ Each anti-pattern from the design doc is explicitly **not provided** in v2.2:
 
 ## 9. Test Target
 
-Tests live in `tests/` at the project root. Each test file is a standalone PHP script that uses the framework to test itself.
+Tests live in `tests/` at the project root. PHPUnit is the test
+runner — an independent oracle that asserts against the framework's
+output without depending on the framework's own correctness.
 
 **Running tests:**
 
 ```bash
 # Run all tests
-php tests/run.php
+./vendor/bin/phpunit
 
 # Or via Makefile
 make test
 ```
 
-**Test file structure:**
+**PHPUnit configuration** (`phpunit.xml` at project root):
 
-Each test file creates pipelines, runs them via `start()`, and checks the returned `CTGTestState` for expected results. A test runner script collects results from all test files and reports pass/fail.
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true">
+    <testsuites>
+        <testsuite name="ctg-php-test">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
+```
 
-**Self-testing pattern:**
+**Test pattern:** Each test method creates a pipeline, runs it via
+`start()`, and uses PHPUnit assertions to verify the returned
+`CTGTestState` — its results, statuses, computed values, expected
+outcomes, and error fields.
+
+**Stage example:**
 
 ```php
 <?php
 declare(strict_types=1);
 
+namespace CTG\Test\Tests;
+
+use PHPUnit\Framework\TestCase;
 use CTG\Test\CTGTest;
 use CTG\Test\CTGTestState;
+use CTG\Test\CTGTestStatus;
 use CTG\Test\Predicates\CTGTestPredicates;
 
-$state = CTGTest::init('stage transforms subject')
-    ->stage('double it', fn(CTGTestState $s) => $s->getSubject() * 2)
-    ->assert('is doubled', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(10))
-    ->start(5);
+class CTGTestPipelineStageTest extends TestCase
+{
+    public function testStageTransformsSubject(): void
+    {
+        $state = CTGTest::init('stage test')
+            ->stage('double it', fn(CTGTestState $s) => $s->getSubject() * 2)
+            ->assert('is doubled', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(10))
+            ->start(5);
 
-// $state is a CTGTestState — inspect its results
-$results = $state->getResults();
-assert($results[0]->_status === \CTG\Test\CTGTestStatus::PASS);
-assert($results[1]->_status === \CTG\Test\CTGTestStatus::PASS);
-assert($results[1]->_computedValue === 10);
-assert($results[1]->_expectedOutcome === 10);
+        $results = $state->getResults();
+        $this->assertCount(2, $results);
+        $this->assertSame(CTGTestStatus::PASS, $results[0]->_status);
+        $this->assertSame(CTGTestStatus::PASS, $results[1]->_status);
+        $this->assertSame(10, $results[1]->_computedValue);
+        $this->assertSame(10, $results[1]->_expectedOutcome);
+    }
+}
 ```
 
 **Skip example (v2.2 signature — no skip label):**
 
 ```php
-<?php
-declare(strict_types=1);
+public function testConditionalSkip(): void
+{
+    $state = CTGTest::init('conditional skip')
+        ->stage('setup', fn(CTGTestState $s) => ['ready' => false])
+        ->skip('check readiness', fn(CTGTestState $s) => $s->getSubject()['ready'] === false)
+        ->assert('check readiness', fn(CTGTestState $s) => $s->getSubject()['ready'], CTGTestPredicates::isTrue())
+        ->start(null);
 
-use CTG\Test\CTGTest;
-use CTG\Test\CTGTestState;
-use CTG\Test\Predicates\CTGTestPredicates;
-
-$state = CTGTest::init('conditional skip')
-    ->stage('setup', fn(CTGTestState $s) => ['ready' => false])
-    ->skip('check readiness', fn(CTGTestState $s) => $s->getSubject()['ready'] === false)
-    ->assert('check readiness', fn(CTGTestState $s) => $s->getSubject()['ready'], CTGTestPredicates::isTrue())
-    ->start(null);
-
-$results = $state->getResults();
-assert($results[0]->_status === \CTG\Test\CTGTestStatus::PASS);  // setup
-assert($results[1]->_skipped === true);                            // check readiness (skipped)
+    $results = $state->getResults();
+    $this->assertSame(CTGTestStatus::PASS, $results[0]->_status);
+    $this->assertTrue($results[1]->_skipped);
+    $this->assertNull($results[1]->_status);
+}
 ```
 
 ---
@@ -1058,6 +1089,7 @@ All judgment calls are annotated inline with `> **Judgment Call —** ...` block
 31. **Renamed to CTGTestTextFormatter** (section 6) — formatter produces string, not console output.
 32. **Strict comparison only** (section 7) — predicates own comparison; no `strict` config.
 33. **`'(custom)'` as expectedOutcome for satisfies()** (section 7) — signals user-defined predicate.
+34. **PHPUnit as test runner** (sections 4.9, 9) — independent oracle avoids bootstrapping problem of self-testing; dev-only dependency preserves zero production deps.
 
 ---
 
