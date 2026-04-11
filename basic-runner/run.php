@@ -12,6 +12,16 @@ declare(strict_types=1);
 // CTGTest). Each pipeline runs independently; the runner does not
 // share state across pipelines.
 //
+// Error handling: any uncaught exception raised while loading a test
+// file or starting a pipeline is reported and counted as "errored",
+// but does not abort the rest of the run. The runner's job is to get
+// through every test file regardless of individual failures.
+//
+// Not production-safe: everything executes in one process with direct
+// start() calls. A hung pipeline will hang the entire run. Mitigate
+// by wrapping the command with a process-level timeout:
+//     timeout 300 php tests/run.php
+//
 // Run with: php tests/run.php
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -20,21 +30,78 @@ use CTG\Test\CTGTest;
 use CTG\Test\CTGTestStatus;
 use CTG\Test\Formatters\CTGTestTextFormatter;
 
-$passed  = 0;
-$failed  = 0;
-$errored = 0;
-$skipped = 0;
+$passed   = 0;
+$failed   = 0;
+$errored  = 0;
+$skipped  = 0;
+$aborted  = 0; // files or pipelines that aborted outside start()'s catch boundary
 
 $files = glob(__DIR__ . '/*Test.php') ?: [];
 
 foreach ($files as $file) {
-    $pipelines = require $file;
+    // Load the test file. A bad require (parse error, missing use, autoload
+    // failure) is reported and the file is skipped, but the run continues.
+    try {
+        $pipelines = require $file;
+    } catch (\Throwable $e) {
+        $aborted++;
+        $errored++;
+        fwrite(STDERR, sprintf(
+            "ERROR: failed to load test file %s\n  %s: %s\n\n",
+            basename($file),
+            get_class($e),
+            $e->getMessage()
+        ));
+        continue;
+    }
+
+    // Normalize return shape: a CTGTest, an iterable of CTGTest, or anything
+    // else is an error. An error here means the test file's return contract
+    // is wrong; we report it and move on.
     if ($pipelines instanceof CTGTest) {
         $pipelines = [$pipelines];
+    } elseif (!is_iterable($pipelines)) {
+        $aborted++;
+        $errored++;
+        fwrite(STDERR, sprintf(
+            "ERROR: test file %s returned %s; expected CTGTest or iterable of CTGTest\n\n",
+            basename($file),
+            get_debug_type($pipelines)
+        ));
+        continue;
     }
 
     foreach ($pipelines as $pipeline) {
-        $state = $pipeline->start(null, ['haltOnFailure' => false]);
+        if (!$pipeline instanceof CTGTest) {
+            $aborted++;
+            $errored++;
+            fwrite(STDERR, sprintf(
+                "ERROR: test file %s yielded a %s; expected CTGTest\n\n",
+                basename($file),
+                get_debug_type($pipeline)
+            ));
+            continue;
+        }
+
+        // start() catches user-handler exceptions and reports them as ERROR
+        // results. An exception escaping start() means a framework validation
+        // error (malformed pipeline, bad config) or an unexpected failure.
+        // We catch it here so one bad pipeline does not abort the whole run.
+        try {
+            $state = $pipeline->start(null, ['haltOnFailure' => false]);
+        } catch (\Throwable $e) {
+            $aborted++;
+            $errored++;
+            fwrite(STDERR, sprintf(
+                "ERROR: pipeline '%s' in %s aborted outside start()\n  %s: %s\n\n",
+                $pipeline->getLabel(),
+                basename($file),
+                get_class($e),
+                $e->getMessage()
+            ));
+            continue;
+        }
+
         echo CTGTestTextFormatter::format($state), "\n";
 
         foreach ($state->getResults() as $result) {
@@ -46,10 +113,20 @@ foreach ($files as $file) {
                 CTGTestStatus::PASS  => $passed++,
                 CTGTestStatus::FAIL  => $failed++,
                 CTGTestStatus::ERROR => $errored++,
+                // Defensive: a well-formed result always has one of the three
+                // statuses when $_skipped is false. A default arm keeps the
+                // runner from crashing if an extension subclass produces an
+                // unexpected status value.
+                default              => $errored++,
             };
         }
     }
 }
 
-echo "Total: {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped\n";
+echo "Total: {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped";
+if ($aborted > 0) {
+    echo " ({$aborted} aborted outside start())";
+}
+echo "\n";
+
 exit(($failed === 0 && $errored === 0) ? 0 : 1);

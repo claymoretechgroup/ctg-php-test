@@ -18,6 +18,47 @@ php tests/run.php
   the convention that test files `return` an array of `CTGTest`
   instances, each seeding its own subject in a first stage.
 
+## What the runner guarantees (and doesn't)
+
+**Guarantees:**
+
+- A parse error, autoload failure, or bad require in one test file
+  reports the filename and keeps going
+- A test file returning the wrong shape (not a `CTGTest` or iterable)
+  is reported and skipped
+- A framework error thrown out of `start()` (e.g. `INVALID_EXPECTED_OUTCOME`
+  from a malformed pipeline) is reported per-pipeline and does not
+  abort the run
+- An unexpected status value from an extension result subclass is
+  counted as errored via a defensive `default` arm, not crashed on
+- The summary line always prints and the exit code always reflects
+  the aggregate state — one broken file cannot silently mask a pass
+- Any of the above increments an `aborted` counter shown in the
+  summary so you can see that failures happened outside `start()`'s
+  normal result model
+
+**Does not guarantee:**
+
+- **Hard timeout or cancellation** — everything runs in one process
+  with direct `start()` calls. A hung pipeline (infinite loop,
+  unbounded I/O without a socket timeout) will hang the entire run.
+  Mitigate at the operating system layer by wrapping the command
+  with a process-level timeout:
+
+  ```bash
+  timeout 300 php tests/run.php
+  ```
+
+- **Isolation between pipelines** — they share the PHP process. If
+  a test leaks global state, static properties, or file descriptors,
+  the next pipeline sees that leakage. Run tests in disposable
+  environments (Docker, DB transactions, tmpfs) when you need true
+  isolation.
+- **Parallel execution, retries, filtering, reporters** — the
+  runner is intentionally sequential and minimal. Add what your
+  project needs in your own copy; do not push features back into
+  this directory.
+
 ## Why files instead of a class or package
 
 `ctg-php-test` deliberately ships the runner as copy-pasteable files
