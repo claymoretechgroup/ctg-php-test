@@ -74,99 +74,44 @@ foreach ($state->getResults() as $result) {
 
 `ctg-php-test` does not ship a test runner — `CTGTest::start()` returns
 a `CTGTestState` and stops. Writing test discovery, result aggregation,
-and exit-code handling is a caller concern. For a single-developer
-project, a ~30-line script at `tests/run.php` is usually all you need.
+and exit-code handling is a caller concern. The library provides a
+deliberate starter solution at [`basic-runner/`](basic-runner/) that
+you copy into each project and extend as needed.
 
-### Starter Runner
+### basic-runner
 
-Copy this into your project as `tests/run.php` and adjust the glob
-pattern to match how you organize your test files. Each test file
-should `return` an array of `CTGTest` instances (or a single
-`CTGTest`) — the runner will invoke `start()` on each, render the
-result state, and set a pass/fail exit code.
+The [`basic-runner/`](basic-runner/) directory contains two files:
 
-```php
-<?php
-declare(strict_types=1);
+- **[`basic-runner/run.php`](basic-runner/run.php)** — the runner
+  script. Discovers `*Test.php` files in its own directory, invokes
+  each pipeline's `start()`, renders result state with
+  `CTGTestTextFormatter`, aggregates counts, and sets an exit code
+  (0 on full pass, 1 on any failure or error).
+- **[`basic-runner/ArithmeticTest.php`](basic-runner/ArithmeticTest.php)** —
+  a working sample test file demonstrating the convention that test
+  files `return` an array of `CTGTest` instances, each seeding its own
+  subject in a first stage.
 
-require_once __DIR__ . '/../vendor/autoload.php';
-
-use CTG\Test\CTGTest;
-use CTG\Test\CTGTestStatus;
-use CTG\Test\Formatters\CTGTestTextFormatter;
-
-$passed  = 0;
-$failed  = 0;
-$errored = 0;
-$skipped = 0;
-
-$files = glob(__DIR__ . '/*Test.php') ?: [];
-
-foreach ($files as $file) {
-    $pipelines = require $file;
-    if ($pipelines instanceof CTGTest) {
-        $pipelines = [$pipelines];
-    }
-
-    foreach ($pipelines as $pipeline) {
-        $state = $pipeline->start(null, ['haltOnFailure' => false]);
-        echo CTGTestTextFormatter::format($state), "\n";
-
-        foreach ($state->getResults() as $result) {
-            if ($result->_skipped) {
-                $skipped++;
-                continue;
-            }
-            match ($result->_status) {
-                CTGTestStatus::PASS  => $passed++,
-                CTGTestStatus::FAIL  => $failed++,
-                CTGTestStatus::ERROR => $errored++,
-            };
-        }
-    }
-}
-
-echo "Total: {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped\n";
-exit(($failed === 0 && $errored === 0) ? 0 : 1);
-```
-
-Each test file then looks like this. Every pipeline seeds its own
-subject in a `stage` so it can run independently of the runner's
-starting subject:
-
-```php
-<?php
-// tests/ArithmeticTest.php
-declare(strict_types=1);
-
-use CTG\Test\CTGTest;
-use CTG\Test\CTGTestState;
-use CTG\Test\Predicates\CTGTestPredicates;
-
-return [
-    CTGTest::init('addition')
-        ->stage('seed', fn(CTGTestState $s) => 1)
-        ->stage('add 1', fn(CTGTestState $s) => $s->getSubject() + 1)
-        ->assert('equals 2', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(2)),
-
-    CTGTest::init('multiplication')
-        ->stage('seed', fn(CTGTestState $s) => 2)
-        ->stage('double', fn(CTGTestState $s) => $s->getSubject() * 2)
-        ->assert('equals 4', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(4)),
-];
-```
-
-Run the suite with:
+To set up a project:
 
 ```bash
+mkdir -p tests
+cp basic-runner/run.php tests/run.php
+cp basic-runner/ArithmeticTest.php tests/     # optional, as a smoke test
+# write your own tests/*Test.php files following the same pattern
 php tests/run.php
 ```
 
-This starter is intentionally minimal. Extend it however your project
-needs — a different subject per pipeline, JSON output for CI, JUnit XML
-for dashboards, filtering by file or label, whatever. The framework's
-contract ends at `start()` returning state; everything after that is
-yours to shape.
+**Why copy-paste files instead of a `CTGTestRunner` class?** The
+runner is deliberately not shipped as a framework class or a separate
+composer package. The design doc treats runner concerns as
+caller-owned, every project has slightly different runner needs
+(fixture wrapping, CI output format, filtering), and forty lines of
+boilerplate is cheaper than premature abstraction. A reusable
+`CTGTestRunner` may be extracted later once multiple real projects
+have used this starter and the shared patterns are visible — but not
+before. See [`basic-runner/README.md`](basic-runner/README.md) for
+the full rationale and customization notes.
 
 > ⚠️ Always run test suites with a hard process-level timeout in CI
 > (e.g., the `timeout` command, CI job timeout settings). The
