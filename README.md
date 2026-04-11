@@ -308,8 +308,78 @@ composer install            # installs PHPUnit as a dev dependency
 ./vendor/bin/phpunit        # runs the full suite
 ```
 
-PHPUnit is a dev-only dependency — it does not ship with the library
-and is not required by consumers of `ctg-php-test`.
+**PHPUnit is a dev-only dependency.** It does not ship with the
+library and is not required by consumers of `ctg-php-test`. A project
+that uses `ctg-php-test` (for example, to test its own domain code)
+needs only PHP 8.1+ and composer's normal package-install machinery.
+None of PHPUnit's dependencies leak through — ctg-php-test itself has
+zero production dependencies.
+
+### Staging environment setup
+
+Development and testing for `ctg-php-test` run inside a Docker-based
+staging container (shared across CTG PHP projects via the
+`ctg-php-staging` repo, cloned into `staging/` as a gitignored
+subdirectory). The container is PHP 8.3 + Apache with a minimal set
+of PHP extensions.
+
+**One local customization is required before running the test suite:**
+the base `ctg-php-staging` Dockerfile does not ship with the PHP
+`zip` extension, but composer needs it to unpack packages downloaded
+from Packagist (PHPUnit and its ~26 transitive dependencies). Add
+`libzip-dev` and `zip` to `staging/docker/apache/Dockerfile`:
+
+```dockerfile
+# System dependencies for PHP extensions. libzip-dev is required to
+# build the zip extension, which composer uses to unpack dev-time
+# packages installed via `composer install` (e.g. PHPUnit). This is
+# a dev-ergonomics concern for testing ctg-php-test itself; it does
+# not affect consumers of the library, which has zero production
+# dependencies.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libzip-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install PHP extensions needed by ctg-php-* libraries
+RUN docker-php-ext-install pdo pdo_mysql mysqli zip
+```
+
+Then rebuild and restart the staging container:
+
+```bash
+cd staging
+make build
+docker compose up -d --force-recreate web
+```
+
+**Why is this customization not upstream in `ctg-php-staging`?**
+The zip-extension requirement is specific to projects that install
+composer-managed dev dependencies inside the staging container.
+Most CTG PHP libraries have zero production deps and no dev-time
+install story, so the base image stays minimal. If enough CTG PHP
+projects end up needing composer dev deps, the fix should be
+promoted upstream — but until then, it lives as a per-project
+override in each staging clone that needs it.
+
+**Why is the edit not tracked by ctg-php-test itself?** `staging/`
+is gitignored (it is a clone of a separate repo), so the Dockerfile
+modification lives only in the working copy. If the staging clone is
+ever deleted and re-cloned, this README is the persistent record of
+what needs to be re-applied.
+
+### Running the test suite
+
+With the staging container rebuilt and the zip extension loaded:
+
+```bash
+docker exec ctg-php-test-staging-web-1 bash -c "cd /var/www/html && composer install"
+docker exec ctg-php-test-staging-web-1 bash -c "cd /var/www/html && ./vendor/bin/phpunit"
+```
+
+The full suite runs in roughly 18 seconds — most of that is the
+behavioral timeout tests, which deliberately sleep for 1.0–1.5
+seconds each to verify timeout enforcement under both the `pcntl`
+alarm path and the `hrtime` post-hoc path.
 
 ## Production Readiness and Operational Considerations
 
