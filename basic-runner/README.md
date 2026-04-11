@@ -26,9 +26,12 @@ php tests/run.php
   reports the filename and keeps going
 - A test file returning the wrong shape (not a `CTGTest` or iterable)
   is reported and skipped
-- A framework error thrown out of `start()` (e.g. `INVALID_EXPECTED_OUTCOME`
-  from a malformed pipeline) is reported per-pipeline and does not
-  abort the run
+- A lazy iterable or generator that throws **during iteration** (not
+  just at require time) is caught at the file boundary and the run
+  continues
+- A framework error thrown out of `start()` (e.g.
+  `INVALID_EXPECTED_OUTCOME` from a malformed pipeline) is reported
+  per-pipeline and does not abort the run
 - An unexpected status value from an extension result subclass is
   counted as errored via a defensive `default` arm, not crashed on
 - The summary line always prints and the exit code always reflects
@@ -36,6 +39,8 @@ php tests/run.php
 - Any of the above increments an `aborted` counter shown in the
   summary so you can see that failures happened outside `start()`'s
   normal result model
+- File discovery is sorted (`sort()` after `glob`) so output order is
+  deterministic across environments and reruns
 
 **Does not guarantee:**
 
