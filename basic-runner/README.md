@@ -34,13 +34,33 @@ php tests/run.php
   per-pipeline and does not abort the run
 - An unexpected status value from an extension result subclass is
   counted as errored via a defensive `default` arm, not crashed on
-- The summary line always prints and the exit code always reflects
-  the aggregate state — one broken file cannot silently mask a pass
-- Any of the above increments an `aborted` counter shown in the
-  summary so you can see that failures happened outside `start()`'s
-  normal result model
+- The summary always prints and the exit code always reflects the
+  aggregate state — one broken file cannot silently mask a pass
 - File discovery is sorted (`sort()` after `glob`) so output order is
   deterministic across environments and reruns
+
+**`errored` vs `aborted` — two different kinds of failure:**
+
+The summary distinguishes cleanly between the two:
+
+- **`errored`** counts only true RESULT errors: an assertion, stage,
+  or predicate inside a running pipeline that couldn't complete
+  (e.g. a handler threw during evaluation). These are caught by
+  `start()` and recorded as `ERROR`-status results in the returned
+  state. They represent "the test tried to run and the evaluation
+  failed."
+- **`aborted`** counts runner-level failures: the pipeline never got
+  to the evaluation stage at all. Bad require, wrong return shape,
+  iterable element that isn't a `CTGTest`, generator throwing mid-
+  iteration, framework validation error escaping `start()`. They
+  represent "the test couldn't even be run."
+
+Both cause a non-zero exit code, and both are visible in the summary
+output, but they're counted separately so you can tell at a glance
+whether your test infrastructure is broken (`aborted` > 0) or your
+tests are finding real runtime errors in the code under test
+(`errored` > 0). Stderr messages for runner-level failures are
+prefixed with `ABORTED:` to reinforce the distinction.
 
 **Does not guarantee:**
 

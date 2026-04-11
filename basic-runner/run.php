@@ -14,9 +14,15 @@ declare(strict_types=1);
 //
 // Error handling: any uncaught exception raised while loading a test
 // file, iterating its pipelines, or starting a pipeline is reported
-// and counted as "errored", but does not abort the rest of the run.
-// The runner's job is to get through every test file regardless of
-// individual failures.
+// and counted as "aborted" (distinct from in-pipeline ERROR results),
+// but does not abort the rest of the run. The runner's job is to get
+// through every test file regardless of individual failures.
+//
+// The distinction matters: `errored` in the summary counts only true
+// RESULT errors — evaluations inside a pipeline that couldn't complete.
+// `aborted` counts runner-level failures where the pipeline didn't
+// even get to the evaluation stage (bad require, wrong return shape,
+// framework error escaping start()). Both cause a non-zero exit.
 //
 // Not production-safe: everything executes in one process with direct
 // start() calls. A hung pipeline will hang the entire run. Mitigate
@@ -64,10 +70,9 @@ foreach ($files as $file) {
         $pipelines = require $file;
     } catch (\Throwable $e) {
         $aborted++;
-        $errored++;
         $filesFailed++;
         fwrite(STDERR, sprintf(
-            "ERROR: failed to load test file %s\n  %s: %s\n\n",
+            "ABORTED: failed to load test file %s\n  %s: %s\n\n",
             basename($file),
             get_class($e),
             $e->getMessage()
@@ -82,10 +87,9 @@ foreach ($files as $file) {
         $pipelines = [$pipelines];
     } elseif (!is_iterable($pipelines)) {
         $aborted++;
-        $errored++;
         $filesFailed++;
         fwrite(STDERR, sprintf(
-            "ERROR: test file %s returned %s; expected CTGTest or iterable of CTGTest\n\n",
+            "ABORTED: test file %s returned %s; expected CTGTest or iterable of CTGTest\n\n",
             basename($file),
             get_debug_type($pipelines)
         ));
@@ -100,10 +104,9 @@ foreach ($files as $file) {
         foreach ($pipelines as $pipeline) {
             if (!$pipeline instanceof CTGTest) {
                 $aborted++;
-                $errored++;
                 $fileHadFailure = true;
                 fwrite(STDERR, sprintf(
-                    "ERROR: test file %s yielded a %s; expected CTGTest\n\n",
+                    "ABORTED: test file %s yielded a %s; expected CTGTest\n\n",
                     basename($file),
                     get_debug_type($pipeline)
                 ));
@@ -119,11 +122,10 @@ foreach ($files as $file) {
                 $state = $pipeline->start(null, ['haltOnFailure' => false]);
             } catch (\Throwable $e) {
                 $aborted++;
-                $errored++;
                 $pipelinesFailed++;
                 $fileHadFailure = true;
                 fwrite(STDERR, sprintf(
-                    "ERROR: pipeline '%s' in %s aborted outside start()\n  %s: %s\n\n",
+                    "ABORTED: pipeline '%s' in %s threw outside start()\n  %s: %s\n\n",
                     $pipeline->getLabel(),
                     basename($file),
                     get_class($e),
@@ -165,10 +167,9 @@ foreach ($files as $file) {
         }
     } catch (\Throwable $e) {
         $aborted++;
-        $errored++;
         $fileHadFailure = true;
         fwrite(STDERR, sprintf(
-            "ERROR: iteration of test file %s aborted\n  %s: %s\n\n",
+            "ABORTED: iteration of test file %s threw\n  %s: %s\n\n",
             basename($file),
             get_class($e),
             $e->getMessage()
@@ -198,10 +199,10 @@ if ($pipelinesFailed > 0) {
 }
 echo "\n";
 
-echo "Results:   {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped";
-if ($aborted > 0) {
-    echo " ({$aborted} aborted outside start())";
-}
-echo "\n";
+echo "Results:   {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped\n";
 
-exit(($failed === 0 && $errored === 0) ? 0 : 1);
+if ($aborted > 0) {
+    echo "Aborted:   {$aborted} (runner-level — load failure, bad return shape, or exception escaping start())\n";
+}
+
+exit(($failed === 0 && $errored === 0 && $aborted === 0) ? 0 : 1);
