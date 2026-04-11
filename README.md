@@ -70,6 +70,109 @@ foreach ($state->getResults() as $result) {
 }
 ```
 
+## Running Your Tests
+
+`ctg-php-test` does not ship a test runner — `CTGTest::start()` returns
+a `CTGTestState` and stops. Writing test discovery, result aggregation,
+and exit-code handling is a caller concern. For a single-developer
+project, a ~30-line script at `tests/run.php` is usually all you need.
+
+### Starter Runner
+
+Copy this into your project as `tests/run.php` and adjust the glob
+pattern to match how you organize your test files. Each test file
+should `return` an array of `CTGTest` instances (or a single
+`CTGTest`) — the runner will invoke `start()` on each, render the
+result state, and set a pass/fail exit code.
+
+```php
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use CTG\Test\CTGTest;
+use CTG\Test\CTGTestStatus;
+use CTG\Test\Formatters\CTGTestTextFormatter;
+
+$passed  = 0;
+$failed  = 0;
+$errored = 0;
+$skipped = 0;
+
+$files = glob(__DIR__ . '/*Test.php') ?: [];
+
+foreach ($files as $file) {
+    $pipelines = require $file;
+    if ($pipelines instanceof CTGTest) {
+        $pipelines = [$pipelines];
+    }
+
+    foreach ($pipelines as $pipeline) {
+        $state = $pipeline->start(null, ['haltOnFailure' => false]);
+        echo CTGTestTextFormatter::format($state), "\n";
+
+        foreach ($state->getResults() as $result) {
+            if ($result->_skipped) {
+                $skipped++;
+                continue;
+            }
+            match ($result->_status) {
+                CTGTestStatus::PASS  => $passed++,
+                CTGTestStatus::FAIL  => $failed++,
+                CTGTestStatus::ERROR => $errored++,
+            };
+        }
+    }
+}
+
+echo "Total: {$passed} passed, {$failed} failed, {$errored} errored, {$skipped} skipped\n";
+exit(($failed === 0 && $errored === 0) ? 0 : 1);
+```
+
+Each test file then looks like this. Every pipeline seeds its own
+subject in a `stage` so it can run independently of the runner's
+starting subject:
+
+```php
+<?php
+// tests/ArithmeticTest.php
+declare(strict_types=1);
+
+use CTG\Test\CTGTest;
+use CTG\Test\CTGTestState;
+use CTG\Test\Predicates\CTGTestPredicates;
+
+return [
+    CTGTest::init('addition')
+        ->stage('seed', fn(CTGTestState $s) => 1)
+        ->stage('add 1', fn(CTGTestState $s) => $s->getSubject() + 1)
+        ->assert('equals 2', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(2)),
+
+    CTGTest::init('multiplication')
+        ->stage('seed', fn(CTGTestState $s) => 2)
+        ->stage('double', fn(CTGTestState $s) => $s->getSubject() * 2)
+        ->assert('equals 4', fn(CTGTestState $s) => $s->getSubject(), CTGTestPredicates::equals(4)),
+];
+```
+
+Run the suite with:
+
+```bash
+php tests/run.php
+```
+
+This starter is intentionally minimal. Extend it however your project
+needs — a different subject per pipeline, JSON output for CI, JUnit XML
+for dashboards, filtering by file or label, whatever. The framework's
+contract ends at `start()` returning state; everything after that is
+yours to shape.
+
+> ⚠️ Always run test suites with a hard process-level timeout in CI
+> (e.g., the `timeout` command, CI job timeout settings). The
+> framework's per-operation timeout is post-hoc — see the Production
+> Readiness section for details.
+
 ## Core Concepts
 
 ### State
